@@ -14,16 +14,8 @@ import {
 import DOMPurify from 'dompurify'
 import path from 'path'
 import fs from 'fs/promises'
-import log from 'electron-log'
 import { getMainWindow } from '../windows/mainWindow'
-
-log.transports.file.level = 'info'
-log.transports.file.maxSize = 10 * 1024 * 1024 // Set log file max size to 10MB
-log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}' // Set log format
-
-log.transports.console.format = (msg) => {
-  return [`[${new Date().toISOString()}] [${msg.level}] ${msg.data.join(' ')}`]
-}
+import { logger } from './logger.service'
 
 // 确保安全发送消息到渲染进程
 function safeSend(channel: string, ...args: unknown[]): void {
@@ -44,35 +36,35 @@ export const setupAutoUpdater = (): void => {
 
   if (!app.isPackaged) {
     setupDevAutoUpdater().catch((error) => {
-      log.error('Dev environment auto-update setup failed:', error)
+      logger.error('Dev environment auto-update setup failed:', error)
     })
   }
 
   ipcMain.handle('check-for-update', async () => {
     try {
-      log.info('Starting update check...')
+      logger.info('Starting update check...')
       await autoUpdater.checkForUpdates()
-      log.info('Manual update check completed')
+      logger.info('Manual update check completed')
     } catch (error: Error | unknown) {
-      log.error('Manual update check failed:', error)
+      logger.error('Manual update check failed:', error)
       const errorMessage = error instanceof Error ? error.message : String(error)
       safeSend('update-error', DOMPurify.sanitize(errorMessage))
     }
   })
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
-    log.info(`New version found: ${info.version}`)
+    logger.info(`New version found: ${info.version}`)
     safeSend('update-available', sanitizeUpdateInfo(info))
   })
 
   autoUpdater.on('update-not-available', (info: UpdateInfo) => {
-    log.info(`Already on latest version: ${app.getVersion()}`)
+    logger.info(`Already on latest version: ${app.getVersion()}`)
     safeSend('update-not-available', sanitizeUpdateInfo(info))
   })
 
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
     const roundedPercent = Math.floor(progress.percent)
-    log.info(`Download progress: ${roundedPercent}%`)
+    logger.info(`Download progress: ${roundedPercent}%`)
 
     safeSend('download-progress', {
       percent: roundedPercent,
@@ -83,12 +75,12 @@ export const setupAutoUpdater = (): void => {
   })
 
   autoUpdater.on('update-downloaded', (event: UpdateDownloadedEvent) => {
-    log.info(`Update downloaded: ${event.version}`)
+    logger.info(`Update downloaded: ${event.version}`)
     safeSend('update-downloaded', sanitizeUpdateInfo(event))
   })
 
   autoUpdater.on('error', (error: Error) => {
-    log.error('Update error:', error)
+    logger.error('Update error:', error)
 
     if (!app.isPackaged) {
       dialog.showErrorBox('Update Error', error.message)
@@ -99,7 +91,7 @@ export const setupAutoUpdater = (): void => {
 
   ipcMain.handle('start-update-download', async () => {
     autoUpdater.downloadUpdate().catch((err) => {
-      log.error('Download update failed:', err)
+      logger.error('Download update failed:', err)
       safeSend('update-error', DOMPurify.sanitize(err.message))
     })
   })
@@ -111,7 +103,7 @@ export const setupAutoUpdater = (): void => {
   if (app.isPackaged) {
     setTimeout(() => {
       autoUpdater.checkForUpdates().catch((err) => {
-        log.error('Startup update check failed:', err)
+        logger.error('Startup update check failed:', err)
       })
     }, 5000) // 延迟5秒检查，让应用完全启动
   }
@@ -124,7 +116,7 @@ export const setupDevAutoUpdater = async (): Promise<void> => {
       await fs.access(configPath)
       autoUpdater.updateConfigPath = configPath
     } catch (error) {
-      log.warn(`Update config file not found in dev environment: ${configPath}`, error)
+      logger.warn(`Update config file not found in dev environment: ${configPath}`, error)
 
       // Create sample config file
       const sampleConfig = `provider: generic
@@ -132,7 +124,7 @@ url: http://localhost:3000/updates
 channel: beta`
 
       await fs.writeFile(configPath, sampleConfig)
-      log.info('Created dev environment update config file:', configPath)
+      logger.info('Created dev environment update config file:', configPath)
       autoUpdater.updateConfigPath = configPath
     }
 
@@ -155,7 +147,7 @@ channel: beta`
       }
 
       safeSend('update-available', fakeInfo)
-      log.info('Mock update check: New version 1.0.3 found')
+      logger.info('Mock update check: New version 1.0.3 found')
     }, 10000)
   }
 }

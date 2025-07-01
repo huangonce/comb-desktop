@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { createMainWindow } from './windows/mainWindow'
 import { initAutoUpdater } from './services/updater.service'
+import { logger } from './services/logger.service'
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -24,7 +25,7 @@ app.whenReady().then(() => {
     width: 1600,
     height: 1000
   })
-  console.log('Main window created:', mainWindow.id)
+  logger.info('创建主窗体:', mainWindow.id)
 
   initAutoUpdater()
 
