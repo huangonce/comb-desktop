@@ -1,3 +1,8 @@
+/**
+ * @file main/windows/mainWindow.ts
+ * @description 创建和管理主窗口的逻辑
+ * @module mainWindow
+ */
 import { shell, BrowserWindow, session } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
@@ -63,15 +68,7 @@ export const createMainWindow = (
 
   // 基于 electron-vite cli 的渲染器的 HMR。
   // 加载远程 URL 用于开发，或加载本地 html 文件用于生产。
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    window.loadURL(process.env['ELECTRON_RENDERER_URL']).catch((err) => {
-      console.error('Failed to load development URL:', err)
-    })
-  } else {
-    window.loadFile(join(__dirname, '../renderer/index.html')).catch((err) => {
-      console.error('Failed to load renderer file:', err)
-    })
-  }
+  loadWindowContent(window)
 
   // 开发模式下自动打开开发者工具
   if (is.dev) {
@@ -80,10 +77,8 @@ export const createMainWindow = (
     })
   }
 
-  // 如果这是主窗口，则保存引用
-  if (!mainWindow) {
-    mainWindow = window
-  }
+  // 保存为主窗口
+  mainWindow = window
 
   return window
 }
@@ -129,4 +124,16 @@ const setupWindowEvents = (window: BrowserWindow): void => {
       window.reload()
     }
   })
+}
+
+const loadWindowContent = (window: BrowserWindow): void => {
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    window.loadURL(process.env['ELECTRON_RENDERER_URL']).catch((err) => {
+      console.error('Failed to load development URL:', err)
+    })
+  } else {
+    window.loadFile(join(__dirname, '../renderer/index.html')).catch((err) => {
+      console.error('Failed to load renderer file:', err)
+    })
+  }
 }
