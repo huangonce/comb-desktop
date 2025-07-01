@@ -1,6 +1,9 @@
 import { createApp } from 'vue'
 import { Quasar, Dialog, Notify } from 'quasar'
 
+import pinia from './stores'
+import router from './router'
+
 // Quasar css
 import '@quasar/extras/material-icons/material-icons.css'
 import '@quasar/extras/material-icons-outlined/material-icons-outlined.css'
@@ -19,5 +22,8 @@ app.use(Quasar, {
     brand: {}
   }
 })
+
+app.use(pinia)
+app.use(router)
 
 app.mount('#app')

@@ -32,3 +32,30 @@ $ pnpm build:mac
 # For Linux
 $ pnpm build:linux
 ```
+
+``` markdown
+comb-desktop/
+├── src/
+│   ├── main/
+│   │   └── index.ts                            # Electron 主进程
+│   ├── preload/
+│   │   └── index.ts                            # 预加载脚本
+│   └── renderer/
+│       └── src/                                # Vue 应用
+│           ├── assets/
+│           │   └── scss/                       # 全局样式
+│           │       ├── quasar-variables.scss
+│           │       └── variables.scss
+│           ├── components/
+│           ├── layouts/
+│           ├── router/                         # Vue Router
+│           ├── store/                          # Pinia 状态管理
+│           ├── pages/                          # 页面组件
+│           ├── App.vue                         # 根组件
+│           ├── main.ts                         # 入口文件
+│           └── env.d.ts                        # 类型声明
+├── electron.vite.config.ts                     # 主配置文件
+├── package.json
+└── tsconfig.json
+
+```
