@@ -4,11 +4,6 @@
  * @module main/services/updater.service.ts
  * @description 该模块使用 electron-updater 库来处理自动更新
  */
-if (process.platform === 'win32') {
-  process.env.PYTHONIOENCODING = 'utf-8'
-  process.env.PYTHONLEGACYWINDOWSSTDIO = 'utf-8'
-}
-
 import { ipcMain, dialog, app } from 'electron'
 import {
   autoUpdater,
@@ -26,7 +21,9 @@ log.transports.file.level = 'info'
 log.transports.file.maxSize = 10 * 1024 * 1024 // Set log file max size to 10MB
 log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}' // Set log format
 
-autoUpdater.logger = log
+log.transports.console.format = (msg) => {
+  return [`[${new Date().toISOString()}] [${msg.level}] ${msg.data.join(' ')}`]
+}
 
 // 确保安全发送消息到渲染进程
 function safeSend(channel: string, ...args: unknown[]): void {
@@ -116,7 +113,7 @@ export const setupAutoUpdater = (): void => {
       autoUpdater.checkForUpdates().catch((err) => {
         log.error('Startup update check failed:', err)
       })
-    }, 5000) // Delay 5 seconds to let app fully start
+    }, 5000) // 延迟5秒检查，让应用完全启动
   }
 }
 
@@ -164,7 +161,7 @@ channel: beta`
 }
 
 export const initAutoUpdater = (): void => {
-  // Setup auto-updater on app startup
+  // 在应用启动时设置自动更新
   setupAutoUpdater()
 }
 
