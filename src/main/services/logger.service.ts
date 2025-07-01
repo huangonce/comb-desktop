@@ -3,8 +3,8 @@
  * @description 该模块配置应用程序的日志记录服务
  * 使用 electron-log 库来记录应用程序的日志信息
  */
-import log from 'electron-log'
 import { app } from 'electron'
+import log from 'electron-log'
 import path from 'path'
 import fs from 'fs'
 
