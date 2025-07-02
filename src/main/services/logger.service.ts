@@ -7,26 +7,34 @@ import { app } from 'electron'
 import log from 'electron-log'
 import path from 'path'
 import fs from 'fs'
+import dayjs from 'dayjs'
 
 const configureLogger = (): typeof log => {
-  // 设置日志文件位置
-  const logsDir = app.isPackaged
-    ? path.join(app.getPath('logs'), `${app.getName()}.log`) // 生产环境
-    : path.join(app.getAppPath(), 'logs', 'app.log') // 开发环境
-
-  const logFileName = app.isPackaged ? `${app.getName()}.log` : 'app-debug.log'
-  const logPath = path.join(logsDir, logFileName)
+  // 获取基础日志目录
+  const baseLogsDir = app.isPackaged
+    ? app.getPath('logs') // 生产环境：系统日志目录
+    : path.join(app.getAppPath(), 'logs') // 开发环境：应用目录下的logs文件夹
 
   // 确保日志目录存在
   try {
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true })
+    if (!fs.existsSync(baseLogsDir)) {
+      fs.mkdirSync(baseLogsDir, { recursive: true })
     }
   } catch (error) {
     console.error('无法创建日志目录:', error)
   }
 
-  log.transports.file.resolvePathFn = () => logPath
+  // 动态生成每日日志文件名
+  const getDailyLogPath = (): string => {
+    const now = new Date()
+    const dateStr = dayjs(now).format('YYYYMMDD') // yyyyMMdd
+    const logFileName = app.isPackaged ? `${dateStr}.log` : `${dateStr}-debug.log`
+
+    return path.join(baseLogsDir, logFileName)
+  }
+
+  // 设置动态日志路径
+  log.transports.file.resolvePathFn = () => getDailyLogPath()
 
   // 通用配置
   log.transports.file.level = 'info'

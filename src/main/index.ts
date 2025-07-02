@@ -25,7 +25,7 @@ app.whenReady().then(() => {
     width: 1600,
     height: 1000
   })
-  logger.info('创建主窗体:', mainWindow.id)
+  logger.info('Main Window:', mainWindow.id)
 
   initAutoUpdater()
 
