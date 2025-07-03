@@ -29,7 +29,8 @@ const updaterAPI = {
 
   checkForUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.CHECK),
   startUpdateDownload: () => ipcRenderer.invoke(UPDATE_ACTIONS.DOWNLOAD),
-  installUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.INSTALL)
+  installUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.INSTALL),
+  removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel)
 }
 
 // Custom APIs for renderer

@@ -16,6 +16,7 @@ interface ElectronUpdaterAPI {
   checkForUpdate: () => Promise<void>
   startUpdateDownload: () => Promise<void>
   installUpdate: () => Promise<void>
+  removeAllListeners: (channel: string) => void
 }
 
 declare global {

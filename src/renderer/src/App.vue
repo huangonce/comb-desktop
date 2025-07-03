@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
-import useAutoUpdater from './composables/useAutoUpdater'
+import useAutoUpdate from './composables/useAutoUpdate'
 
-useAutoUpdater()
+useAutoUpdate()
 </script>
 
 <template>

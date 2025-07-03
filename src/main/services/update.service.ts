@@ -4,14 +4,14 @@
  * @module main/services/updater.service.ts
  * @description 该模块使用 electron-updater 库来处理自动更新
  */
-import { ipcMain, dialog, app } from 'electron'
+import { ipcMain, app } from 'electron'
 import {
   autoUpdater,
   type UpdateInfo,
   type ProgressInfo,
   type UpdateDownloadedEvent
 } from 'electron-updater'
-import DOMPurify from 'dompurify'
+// import DOMPurify from 'dompurify'
 import path from 'path'
 import fs from 'fs/promises'
 import { getMainWindow } from '../windows/mainWindow'
@@ -31,25 +31,25 @@ function safeSend(channel: string, ...args: unknown[]): void {
   }
 }
 
-function sanitizeUpdateInfo(info: UpdateInfo): UpdateInfo {
-  const sanitize = (text: string): string => DOMPurify.sanitize(text || '')
+// function sanitizeUpdateInfo(info: UpdateInfo): UpdateInfo {
+//   const sanitize = (text: string): string => DOMPurify.sanitize(text || '')
 
-  let releaseNotes = ''
-  if (typeof info.releaseNotes === 'string') {
-    releaseNotes = sanitize(info.releaseNotes)
-  } else if (Array.isArray(info.releaseNotes)) {
-    releaseNotes = sanitize(
-      info.releaseNotes.map((note) => (typeof note === 'string' ? note : note.note)).join('\n')
-    )
-  }
+//   let releaseNotes = ''
+//   if (typeof info.releaseNotes === 'string') {
+//     releaseNotes = sanitize(info.releaseNotes)
+//   } else if (Array.isArray(info.releaseNotes)) {
+//     releaseNotes = sanitize(
+//       info.releaseNotes.map((note) => (typeof note === 'string' ? note : note.note)).join('\n')
+//     )
+//   }
 
-  return {
-    ...info,
-    releaseName: sanitize(info.releaseName || ''),
-    releaseNotes,
-    releaseDate: info.releaseDate || new Date().toISOString()
-  }
-}
+//   return {
+//     ...info,
+//     releaseName: sanitize(info.releaseName || ''),
+//     releaseNotes,
+//     releaseDate: info.releaseDate || new Date().toISOString()
+//   }
+// }
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -91,7 +91,7 @@ function scheduleMockUpdate(): void {
   }, DEV_MOCK_UPDATE_DELAY)
 }
 
-async function setupDevAutoUpdater(): Promise<void> {
+async function setupDevAutoUpdate(): Promise<void> {
   if (app.isPackaged) return
 
   const configPath = path.join(app.getAppPath(), 'dev-app-update.yml')
@@ -111,39 +111,34 @@ async function setupDevAutoUpdater(): Promise<void> {
   scheduleMockUpdate()
 }
 
-function setupAutoUpdaterListeners(): void {
+function setupListeners(): void {
   autoUpdater.on('update-available', (info: UpdateInfo) => {
     logger.info(`New version found: ${info.version}`)
-    safeSend('update-available', sanitizeUpdateInfo(info))
+    safeSend('update-available', info)
   })
 
   autoUpdater.on('update-not-available', (info: UpdateInfo) => {
     logger.info(`Already on latest version: ${app.getVersion()}`)
-    safeSend('update-not-available', sanitizeUpdateInfo(info))
+    safeSend('update-not-available', info)
   })
 
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
     const roundedPercent = Math.floor(progress.percent)
     logger.info(`Download progress: ${roundedPercent}%`)
-    safeSend('download-progress', {
-      percent: roundedPercent,
-      bytesPerSecond: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total
-    })
+    safeSend('download-progress', progress)
   })
 
   autoUpdater.on('update-downloaded', (event: UpdateDownloadedEvent) => {
     logger.info(`Update downloaded: ${event.version}`)
-    safeSend('update-downloaded', sanitizeUpdateInfo(event))
+    safeSend('update-downloaded', event)
   })
 
   autoUpdater.on('error', (error: Error) => {
     logger.error('Update error:', error)
-    if (!app.isPackaged) {
-      dialog.showErrorBox('Update Error', error.message)
-    }
-    safeSend('update-error', DOMPurify.sanitize(error.message))
+    // if (!app.isPackaged) {
+    //   dialog.showErrorBox('Update Error', error.message)
+    // }
+    safeSend('update-error', error.message)
   })
 }
 
@@ -153,18 +148,18 @@ function setupIpcHandlers(): void {
       logger.info('Starting manual update check...')
       await autoUpdater.checkForUpdates()
       logger.info('Manual update check completed')
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
+    } catch (error) {
+      const message = getErrorMessage(error)
       logger.error('Manual update check failed:', message)
-      safeSend('update-error', DOMPurify.sanitize(message))
+      safeSend('update-error', message)
     }
   })
 
   ipcMain.handle('start-update-download', () => {
     autoUpdater.downloadUpdate().catch((error) => {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = getErrorMessage(error)
       logger.error('Download update failed:', message)
-      safeSend('update-error', DOMPurify.sanitize(message))
+      safeSend('update-error', message)
     })
   })
 
@@ -173,7 +168,7 @@ function setupIpcHandlers(): void {
   })
 }
 
-export const setupAutoUpdater = (): void => {
+export const setupAutoUpdate = (): void => {
   // 基本配置
   Object.assign(autoUpdater, {
     autoDownload: false, // 让用户决定是否下载
@@ -184,10 +179,10 @@ export const setupAutoUpdater = (): void => {
   })
 
   // 开发环境特殊处理
-  !app.isPackaged && setupDevAutoUpdater().catch(logger.error)
+  !app.isPackaged && setupDevAutoUpdate().catch(logger.error)
 
   // 设置监听器和处理器
-  setupAutoUpdaterListeners()
+  setupListeners()
   setupIpcHandlers()
 
   // 生产环境自动检查更新
@@ -199,7 +194,7 @@ export const setupAutoUpdater = (): void => {
     }, INITIAL_UPDATE_DELAY)
 }
 
-export const initAutoUpdater = (): void => {
+export const initAutoUpdate = (): void => {
   // 在应用启动时设置自动更新
-  setupAutoUpdater()
+  setupAutoUpdate()
 }

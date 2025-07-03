@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { createMainWindow } from './windows/mainWindow'
-import { initAutoUpdater } from './services/updater.service'
+import { initAutoUpdate } from './services/update.service'
 import { logger } from './services/logger.service'
 
 // This method will be called when Electron has finished
@@ -27,7 +27,7 @@ app.whenReady().then(() => {
   })
   logger.info('Main Window:', mainWindow.id)
 
-  initAutoUpdater()
+  initAutoUpdate()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
