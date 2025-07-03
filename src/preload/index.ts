@@ -1,22 +1,14 @@
+/**
+ * Electron 应用的预加载脚本
+ * 此脚本用于将 Electron API 暴露给渲染进程
+ * 同时通过使用上下文隔离来保证安全性。
+ * 它还设置了用于处理应用更新的更新程序 API。
+ * @module preload/index
+ */
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { UpdateInfo, ProgressInfo, UpdateDownloadedEvent } from 'electron-updater'
-
-// 自动更新事件通道
-const UPDATE_EVENTS = {
-  AVAILABLE: 'update-available',
-  NOT_AVAILABLE: 'update-not-available',
-  PROGRESS: 'download-progress',
-  DOWNLOADED: 'update-downloaded',
-  ERROR: 'update-error'
-}
-
-// 自动更新操作通道
-const UPDATE_ACTIONS = {
-  CHECK: 'check-for-update',
-  DOWNLOAD: 'start-update-download',
-  INSTALL: 'install-update'
-}
+import { UPDATE_EVENTS, UPDATE_ACTIONS } from '../shared/ipc-channels'
 
 const updaterAPI = {
   onUpdateAvailable: (callback: (info: UpdateInfo) => void) => {
@@ -35,10 +27,7 @@ const updaterAPI = {
     ipcRenderer.on(UPDATE_EVENTS.ERROR, (_, error: string) => callback(error))
   },
 
-  checkForUpdate: () => {
-    console.log('222222222222')
-    ipcRenderer.invoke(UPDATE_ACTIONS.CHECK)
-  },
+  checkForUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.CHECK),
   startUpdateDownload: () => ipcRenderer.invoke(UPDATE_ACTIONS.DOWNLOAD),
   installUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.INSTALL)
 }

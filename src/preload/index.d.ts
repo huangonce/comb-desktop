@@ -1,3 +1,8 @@
+/**
+ * @file Electron 更新 API 的预加载脚本
+ * @description 此文件定义了 Electron 应用预加载脚本中使用的 Electron 更新 API 的类型和接口。
+ * @module preload/index.d.ts
+ */
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { UpdateInfo, ProgressInfo, UpdateDownloadedEvent } from 'electron-updater'
 

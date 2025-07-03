@@ -51,31 +51,25 @@ function sanitizeUpdateInfo(info: UpdateInfo): UpdateInfo {
   }
 }
 
-async function setupDevAutoUpdater(): Promise<void> {
-  if (app.isPackaged) return
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
-  const configPath = path.join(app.getAppPath(), 'dev-app-update.yml')
-
-  try {
-    await fs.access(configPath)
-    autoUpdater.updateConfigPath = configPath
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    logger.warn(`Dev update config not found: ${configPath}`, message)
-
-    // 创建示例配置
-    await fs.writeFile(
-      configPath,
-      `provider: generic
+async function createDevConfig(configPath: string): Promise<void> {
+  const configContent = `provider: generic
 url: http://localhost:3000/updates
 channel: beta`
-    )
+
+  try {
+    await fs.writeFile(configPath, configContent)
     logger.info('Created dev environment update config file:', configPath)
-    autoUpdater.updateConfigPath = configPath
+  } catch (error) {
+    const message = getErrorMessage(error)
+    logger.error('Failed to create dev config:', message)
   }
+}
 
-  autoUpdater.forceDevUpdateConfig = true
-
+function scheduleMockUpdate(): void {
   setTimeout(() => {
     const fakeInfo: UpdateInfo = {
       version: '1.0.3',
@@ -95,6 +89,26 @@ channel: beta`
     safeSend('update-available', fakeInfo)
     logger.info('Mock update check: New version 1.0.3 found')
   }, DEV_MOCK_UPDATE_DELAY)
+}
+
+async function setupDevAutoUpdater(): Promise<void> {
+  if (app.isPackaged) return
+
+  const configPath = path.join(app.getAppPath(), 'dev-app-update.yml')
+
+  try {
+    await fs.access(configPath)
+    autoUpdater.updateConfigPath = configPath
+  } catch (error) {
+    const message = getErrorMessage(error)
+    logger.warn(`Dev update config not found: ${configPath}`, message)
+
+    await createDevConfig(configPath)
+    autoUpdater.updateConfigPath = configPath
+  }
+
+  autoUpdater.forceDevUpdateConfig = true
+  scheduleMockUpdate()
 }
 
 function setupAutoUpdaterListeners(): void {
@@ -135,8 +149,6 @@ function setupAutoUpdaterListeners(): void {
 
 function setupIpcHandlers(): void {
   ipcMain.handle('check-for-update', async () => {
-    console.log('11111111111111')
-
     try {
       logger.info('Starting manual update check...')
       await autoUpdater.checkForUpdates()
