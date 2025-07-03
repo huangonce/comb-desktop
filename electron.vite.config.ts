@@ -28,7 +28,7 @@ export default defineConfig({
       }),
       quasar({
         sassVariables: fileURLToPath(
-          new URL('./src/renderer/src/assets/scss/quasar-variables.sass', import.meta.url)
+          new URL('./src/renderer/src/assets/scss/quasar-variables.scss', import.meta.url)
         )
       })
     ],
