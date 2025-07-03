@@ -7,6 +7,8 @@ const loading = ref(false)
 const eSearch = (): void => {
   if (!keyword.value.trim()) return
 
+  window.api.checkForUpdate()
+
   console.log('搜索关键词:', keyword.value)
 
   loading.value = true

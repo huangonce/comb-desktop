@@ -38,8 +38,9 @@ comb-desktop/
 ├── src/
 │   ├── main/
 │   │   └── index.ts                            # Electron 主进程
-│   ├── preload/
-│   │   └── index.ts                            # 预加载脚本
+│   ├── preload/                                # 预加载脚本
+│   │   ├── index.d.ts
+│   │   └── index.ts
 │   └── renderer/
 │       └── src/                                # Vue 应用
 │           ├── assets/

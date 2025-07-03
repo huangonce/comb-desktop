@@ -17,6 +17,11 @@ import fs from 'fs/promises'
 import { getMainWindow } from '../windows/mainWindow'
 import { logger } from './logger.service'
 
+// 配置常量
+const INITIAL_UPDATE_DELAY = 5_000
+const DEV_MOCK_UPDATE_DELAY = 5_000
+const AUTO_INSTALL_ON_QUIT = true
+
 // 确保安全发送消息到渲染进程
 function safeSend(channel: string, ...args: unknown[]): void {
   const window = getMainWindow()
@@ -26,32 +31,73 @@ function safeSend(channel: string, ...args: unknown[]): void {
   }
 }
 
-export const setupAutoUpdater = (): void => {
-  // 配置自动更新
-  autoUpdater.autoDownload = false // 让用户决定是否下载
-  autoUpdater.autoInstallOnAppQuit = true // 退出时自动安装更新
-  autoUpdater.allowDowngrade = false // 不允许降级
-  autoUpdater.allowPrerelease = false // 默认不允许预发布版本
-  autoUpdater.fullChangelog = true // 获取完整的变更日志
+function sanitizeUpdateInfo(info: UpdateInfo): UpdateInfo {
+  const sanitize = (text: string): string => DOMPurify.sanitize(text || '')
 
-  if (!app.isPackaged) {
-    setupDevAutoUpdater().catch((error) => {
-      logger.error('Dev environment auto-update setup failed:', error)
-    })
+  let releaseNotes = ''
+  if (typeof info.releaseNotes === 'string') {
+    releaseNotes = sanitize(info.releaseNotes)
+  } else if (Array.isArray(info.releaseNotes)) {
+    releaseNotes = sanitize(
+      info.releaseNotes.map((note) => (typeof note === 'string' ? note : note.note)).join('\n')
+    )
   }
 
-  ipcMain.handle('check-for-update', async () => {
-    try {
-      logger.info('Starting update check...')
-      await autoUpdater.checkForUpdates()
-      logger.info('Manual update check completed')
-    } catch (error: Error | unknown) {
-      logger.error('Manual update check failed:', error)
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      safeSend('update-error', DOMPurify.sanitize(errorMessage))
-    }
-  })
+  return {
+    ...info,
+    releaseName: sanitize(info.releaseName || ''),
+    releaseNotes,
+    releaseDate: info.releaseDate || new Date().toISOString()
+  }
+}
 
+async function setupDevAutoUpdater(): Promise<void> {
+  if (app.isPackaged) return
+
+  const configPath = path.join(app.getAppPath(), 'dev-app-update.yml')
+
+  try {
+    await fs.access(configPath)
+    autoUpdater.updateConfigPath = configPath
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.warn(`Dev update config not found: ${configPath}`, message)
+
+    // 创建示例配置
+    await fs.writeFile(
+      configPath,
+      `provider: generic
+url: http://localhost:3000/updates
+channel: beta`
+    )
+    logger.info('Created dev environment update config file:', configPath)
+    autoUpdater.updateConfigPath = configPath
+  }
+
+  autoUpdater.forceDevUpdateConfig = true
+
+  setTimeout(() => {
+    const fakeInfo: UpdateInfo = {
+      version: '1.0.3',
+      releaseDate: new Date().toISOString(),
+      releaseName: 'Dev Environment Mock Update',
+      releaseNotes: `## New Features
+- Added mock update functionality
+- Optimized development experience
+
+## Fixes
+- Fixed several known issues`,
+      path: '',
+      sha512: '',
+      files: []
+    }
+
+    safeSend('update-available', fakeInfo)
+    logger.info('Mock update check: New version 1.0.3 found')
+  }, DEV_MOCK_UPDATE_DELAY)
+}
+
+function setupAutoUpdaterListeners(): void {
   autoUpdater.on('update-available', (info: UpdateInfo) => {
     logger.info(`New version found: ${info.version}`)
     safeSend('update-available', sanitizeUpdateInfo(info))
@@ -65,7 +111,6 @@ export const setupAutoUpdater = (): void => {
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
     const roundedPercent = Math.floor(progress.percent)
     logger.info(`Download progress: ${roundedPercent}%`)
-
     safeSend('download-progress', {
       percent: roundedPercent,
       bytesPerSecond: progress.bytesPerSecond,
@@ -81,95 +126,68 @@ export const setupAutoUpdater = (): void => {
 
   autoUpdater.on('error', (error: Error) => {
     logger.error('Update error:', error)
-
     if (!app.isPackaged) {
       dialog.showErrorBox('Update Error', error.message)
     }
-
     safeSend('update-error', DOMPurify.sanitize(error.message))
   })
+}
 
-  ipcMain.handle('start-update-download', async () => {
-    autoUpdater.downloadUpdate().catch((err) => {
-      logger.error('Download update failed:', err)
-      safeSend('update-error', DOMPurify.sanitize(err.message))
+function setupIpcHandlers(): void {
+  ipcMain.handle('check-for-update', async () => {
+    console.log('11111111111111')
+
+    try {
+      logger.info('Starting manual update check...')
+      await autoUpdater.checkForUpdates()
+      logger.info('Manual update check completed')
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error('Manual update check failed:', message)
+      safeSend('update-error', DOMPurify.sanitize(message))
+    }
+  })
+
+  ipcMain.handle('start-update-download', () => {
+    autoUpdater.downloadUpdate().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error('Download update failed:', message)
+      safeSend('update-error', DOMPurify.sanitize(message))
     })
   })
 
-  ipcMain.handle('install-update', async () => {
-    autoUpdater.quitAndInstall(true, true) // 退出前不提示用户
+  ipcMain.handle('install-update', () => {
+    autoUpdater.quitAndInstall(true, AUTO_INSTALL_ON_QUIT)
   })
-
-  if (app.isPackaged) {
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch((err) => {
-        logger.error('Startup update check failed:', err)
-      })
-    }, 5000) // 延迟5秒检查，让应用完全启动
-  }
 }
 
-export const setupDevAutoUpdater = async (): Promise<void> => {
-  if (!app.isPackaged) {
-    const configPath = path.join(app.getAppPath(), 'dev-app-update.yml')
-    try {
-      await fs.access(configPath)
-      autoUpdater.updateConfigPath = configPath
-    } catch (error) {
-      logger.warn(`Update config file not found in dev environment: ${configPath}`, error)
+export const setupAutoUpdater = (): void => {
+  // 基本配置
+  Object.assign(autoUpdater, {
+    autoDownload: false, // 让用户决定是否下载
+    autoInstallOnAppQuit: AUTO_INSTALL_ON_QUIT, // 退出时自动安装更新
+    allowDowngrade: false, // 不允许降级
+    allowPrerelease: false, // 默认不允许预发布版本
+    fullChangelog: true // 获取完整的变更日志
+  })
 
-      // Create sample config file
-      const sampleConfig = `provider: generic
-url: http://localhost:3000/updates
-channel: beta`
+  // 开发环境特殊处理
+  !app.isPackaged && setupDevAutoUpdater().catch(logger.error)
 
-      await fs.writeFile(configPath, sampleConfig)
-      logger.info('Created dev environment update config file:', configPath)
-      autoUpdater.updateConfigPath = configPath
-    }
+  // 设置监听器和处理器
+  setupAutoUpdaterListeners()
+  setupIpcHandlers()
 
-    autoUpdater.forceDevUpdateConfig = true
-
+  // 生产环境自动检查更新
+  app.isPackaged &&
     setTimeout(() => {
-      const fakeInfo: UpdateInfo = {
-        version: '1.0.3',
-        releaseDate: new Date().toISOString(),
-        releaseName: 'Dev Environment Mock Update',
-        releaseNotes: `## New Features
-- Added mock update functionality
-- Optimized development experience
-
-## Fixes
-- Fixed several known issues`,
-        path: '',
-        sha512: '',
-        files: []
-      }
-
-      safeSend('update-available', fakeInfo)
-      logger.info('Mock update check: New version 1.0.3 found')
-    }, 10000)
-  }
+      autoUpdater.checkForUpdates().catch((error) => {
+        logger.error('Startup update check failed:', error)
+      })
+    }, INITIAL_UPDATE_DELAY)
 }
 
 export const initAutoUpdater = (): void => {
   // 在应用启动时设置自动更新
   setupAutoUpdater()
-}
-
-function sanitizeUpdateInfo(info: UpdateInfo): UpdateInfo {
-  return {
-    ...info,
-    releaseName: DOMPurify.sanitize(info.releaseName || ''),
-    releaseNotes: DOMPurify.sanitize(
-      typeof info.releaseNotes === 'string'
-        ? info.releaseNotes
-        : Array.isArray(info.releaseNotes)
-          ? info.releaseNotes
-              .map((note) => (typeof note === 'string' ? note : note.note))
-              .join('\n')
-          : ''
-    ),
-    releaseDate: info.releaseDate || new Date().toISOString()
-  }
 }
