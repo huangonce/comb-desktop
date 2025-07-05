@@ -10,32 +10,60 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { UpdateInfo, ProgressInfo, UpdateDownloadedEvent } from 'electron-updater'
 import { UPDATE_EVENTS, UPDATE_ACTIONS } from '../shared/ipc-channels'
 
-const updaterAPI = {
-  onUpdateAvailable: (callback: (info: UpdateInfo) => void) => {
-    ipcRenderer.on(UPDATE_EVENTS.AVAILABLE, (_, info: UpdateInfo) => callback(info))
+const unifiedAPI = {
+  /**
+   * 调用主进程方法
+   * @param channel 要调用的 IPC 通道名称
+   * @param args 要传递给主进程的参数
+   * @returns 主进程返回的结果
+   */
+  invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
+    return ipcRenderer.invoke(channel, ...args)
   },
-  onUpdateNotAvailable: (callback: (info: UpdateInfo) => void) => {
-    ipcRenderer.on(UPDATE_EVENTS.NOT_AVAILABLE, (_, info: UpdateInfo) => callback(info))
+  /**
+   * 监听事件
+   * @param channel 要监听的 IPC 通道名称
+   * @param callback 事件回调函数
+   */
+  on: (channel: string, callback: (...args: unknown[]) => void) => {
+    ipcRenderer.on(channel, (_, ...args) => callback(...args))
   },
-  onDownloadProgress: (callback: (progress: ProgressInfo) => void) => {
-    ipcRenderer.on(UPDATE_EVENTS.PROGRESS, (_, progress: ProgressInfo) => callback(progress))
-  },
-  onUpdateDownloaded: (callback: (event: UpdateDownloadedEvent) => void) => {
-    ipcRenderer.on(UPDATE_EVENTS.DOWNLOADED, (_, event: UpdateDownloadedEvent) => callback(event))
-  },
-  onUpdateError: (callback: (error: string) => void) => {
-    ipcRenderer.on(UPDATE_EVENTS.ERROR, (_, error: string) => callback(error))
-  },
+  /**
+   * 移除事件监听
+   * @param channel 要移除监听的 IPC 通道名称
+   * @param listener 要移除的监听函数
+   * @deprecated 使用 `removeAllListeners` 替代
+   * @returns
+   */
+  removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
 
-  checkForUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.CHECK),
-  startUpdateDownload: () => ipcRenderer.invoke(UPDATE_ACTIONS.DOWNLOAD),
-  installUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.INSTALL),
-  removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel)
+  updater: {
+    checkForUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.CHECK),
+    startUpdateDownload: () => ipcRenderer.invoke(UPDATE_ACTIONS.DOWNLOAD),
+    installUpdate: () => ipcRenderer.invoke(UPDATE_ACTIONS.INSTALL),
+
+    onUpdateAvailable: (callback: (info: UpdateInfo) => void) => {
+      ipcRenderer.on(UPDATE_EVENTS.AVAILABLE, (_, info: UpdateInfo) => callback(info))
+    },
+    onUpdateNotAvailable: (callback: (info: UpdateInfo) => void) => {
+      ipcRenderer.on(UPDATE_EVENTS.NOT_AVAILABLE, (_, info: UpdateInfo) => callback(info))
+    },
+    onDownloadProgress: (callback: (progress: ProgressInfo) => void) => {
+      ipcRenderer.on(UPDATE_EVENTS.PROGRESS, (_, progress: ProgressInfo) => callback(progress))
+    },
+    onUpdateDownloaded: (callback: (event: UpdateDownloadedEvent) => void) => {
+      ipcRenderer.on(UPDATE_EVENTS.DOWNLOADED, (_, event: UpdateDownloadedEvent) => callback(event))
+    },
+    onUpdateError: (callback: (error: string) => void) => {
+      ipcRenderer.on(UPDATE_EVENTS.ERROR, (_, error: string) => callback(error))
+    }
+  }
 }
 
-// Custom APIs for renderer
-const api = {
-  ...updaterAPI
+// 暴露给渲染进程的 API
+const exposedAPI = {
+  ...electronAPI,
+  ...unifiedAPI
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
@@ -43,14 +71,11 @@ const api = {
 // just add to the DOM global.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('electron', exposedAPI)
   } catch (error) {
     console.error(error)
   }
 } else {
   // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
+  window.electron = exposedAPI
 }

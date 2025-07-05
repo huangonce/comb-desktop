@@ -12,7 +12,7 @@ interface UpdateProgress {
 }
 
 // 检查是否在Electron环境中
-const isElectron = (): boolean => !!window.api
+const isElectron = (): boolean => !!window.electron
 
 const useAutoUpdate = (): {
   updateStatus: typeof updateStatus
@@ -100,7 +100,7 @@ const useAutoUpdate = (): {
     updateStatus.value = 'available'
     updateInfo.value = info
 
-    const $dialog = handleDialog({
+    handleDialog({
       title: '更新可用',
       message: `发现新版本：${info.version}`,
       ok: {
@@ -109,8 +109,8 @@ const useAutoUpdate = (): {
       }
     })
 
-    $dialog.onOk(() => {
-      window.api.startUpdateDownload()
+    dialog.value?.onOk(() => {
+      window.electron.updater?.startUpdateDownload()
     })
   }
 
@@ -148,7 +148,7 @@ const useAutoUpdate = (): {
   function showDownloadedDialog(event: UpdateDownloadedEvent): void {
     updateStatus.value = 'downloaded'
 
-    const $dialog = handleDialog({
+    handleDialog({
       title: '更新下载完成',
       message: `更新已下载完成，版本：${event.version}`,
       ok: {
@@ -159,8 +159,8 @@ const useAutoUpdate = (): {
       }
     })
 
-    $dialog.onOk(() => {
-      window.api.installUpdate()
+    dialog.value?.onOk(() => {
+      window.electron.updater?.installUpdate()
     })
   }
 
@@ -171,7 +171,7 @@ const useAutoUpdate = (): {
     // 截断过长的错误信息
     const truncatedError = error.length > 100 ? `${error.substring(0, 250)}...` : error
 
-    const $dialog = handleDialog({
+    handleDialog({
       title: '更新错误',
       message: `更新过程中发生错误：${truncatedError}`,
       style: {
@@ -183,49 +183,52 @@ const useAutoUpdate = (): {
       }
     })
 
-    $dialog.onOk(() => {
-      window.api.checkForUpdate()
+    dialog.value?.onOk(() => {
+      window.electron.updater?.checkForUpdate()
     })
   }
 
-  const initAutoUpdater = (): void => {
+  const initEventListeners = (): void => {
     if (!isElectron()) {
       console.warn('AutoUpdater is only available in Electron environment.')
       return
     }
 
     // 监听更新事件
-    window.api.onUpdateAvailable(showAvailableUpdaterDialog)
-    window.api.onUpdateNotAvailable(showNoUpdateUpdateNotify)
-    window.api.onDownloadProgress(showDownloadingDialog)
-    window.api.onUpdateDownloaded(showDownloadedDialog)
-    window.api.onUpdateError(showUpdaterErrorDialog)
+    window.electron.updater?.onUpdateAvailable(showAvailableUpdaterDialog)
+    window.electron.updater?.onUpdateNotAvailable(showNoUpdateUpdateNotify)
+    window.electron.updater?.onDownloadProgress(showDownloadingDialog)
+    window.electron.updater?.onUpdateDownloaded(showDownloadedDialog)
+    window.electron.updater?.onUpdateError(showUpdaterErrorDialog)
 
     // 检查更新
-    window.api.checkForUpdate().catch((error: Error) => {
+    window.electron.updater?.checkForUpdate().catch((error: Error) => {
       showUpdaterErrorDialog(error.message)
     })
   }
-  const cleanupAutoUpdater = (): void => {
+
+  const cleanupEventListeners = (): void => {
     if (!isElectron()) {
       console.warn('AutoUpdater is only available in Electron environment.')
       return
     }
 
     // 取消监听更新事件
-    window.api.removeAllListeners(UPDATE_EVENTS.AVAILABLE)
-    window.api.removeAllListeners(UPDATE_EVENTS.NOT_AVAILABLE)
-    window.api.removeAllListeners(UPDATE_EVENTS.PROGRESS)
-    window.api.removeAllListeners(UPDATE_EVENTS.DOWNLOADED)
-    window.api.removeAllListeners(UPDATE_EVENTS.ERROR)
+    if (window.electron?.removeAllListeners) {
+      window.electron.removeAllListeners(UPDATE_EVENTS.AVAILABLE)
+      window.electron.removeAllListeners(UPDATE_EVENTS.NOT_AVAILABLE)
+      window.electron.removeAllListeners(UPDATE_EVENTS.PROGRESS)
+      window.electron.removeAllListeners(UPDATE_EVENTS.DOWNLOADED)
+      window.electron.removeAllListeners(UPDATE_EVENTS.ERROR)
+    }
   }
 
   onMounted(() => {
-    initAutoUpdater()
+    initEventListeners()
   })
 
   onBeforeUnmount(() => {
-    cleanupAutoUpdater()
+    cleanupEventListeners()
   })
 
   return {
