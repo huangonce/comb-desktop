@@ -1,3 +1,8 @@
-provider: generic
-url: https://example.com/auto-updates
+# provider: generic
+# url: https://example.com/auto-updates
+provider: github
+owner: huangonce
+repo: comb-desktop
+releaseType: release
+channel: latest
 updaterCacheDirName: comb-desktop-updater
