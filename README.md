@@ -60,3 +60,5 @@ comb-desktop/
 └── tsconfig.json
 
 ```
+
+npx electron-builder build --win --publish always

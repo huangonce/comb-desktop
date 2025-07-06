@@ -31,26 +31,6 @@ function safeSend(channel: string, ...args: unknown[]): void {
   }
 }
 
-// function sanitizeUpdateInfo(info: UpdateInfo): UpdateInfo {
-//   const sanitize = (text: string): string => DOMPurify.sanitize(text || '')
-
-//   let releaseNotes = ''
-//   if (typeof info.releaseNotes === 'string') {
-//     releaseNotes = sanitize(info.releaseNotes)
-//   } else if (Array.isArray(info.releaseNotes)) {
-//     releaseNotes = sanitize(
-//       info.releaseNotes.map((note) => (typeof note === 'string' ? note : note.note)).join('\n')
-//     )
-//   }
-
-//   return {
-//     ...info,
-//     releaseName: sanitize(info.releaseName || ''),
-//     releaseNotes,
-//     releaseDate: info.releaseDate || new Date().toISOString()
-//   }
-// }
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -108,7 +88,7 @@ async function setupDevAutoUpdate(): Promise<void> {
   }
 
   autoUpdater.forceDevUpdateConfig = true
-  scheduleMockUpdate()
+  // scheduleMockUpdate()
 }
 
 function setupListeners(): void {

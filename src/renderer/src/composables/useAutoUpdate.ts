@@ -201,6 +201,7 @@ const useAutoUpdate = (): {
     window.electron.updater?.onUpdateDownloaded(showDownloadedDialog)
     window.electron.updater?.onUpdateError(showUpdaterErrorDialog)
 
+    console.log()
     // 检查更新
     window.electron.updater?.checkForUpdate().catch((error: Error) => {
       showUpdaterErrorDialog(error.message)
