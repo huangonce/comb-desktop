@@ -68,8 +68,6 @@ const useAutoUpdate = (): {
   }
 
   function handleDialog(options: QDialogOptions): DialogChainObject {
-    clearDialog()
-
     dialog.value = $q.dialog({
       ...options,
       dark: $q.dark.isActive,
@@ -110,6 +108,7 @@ const useAutoUpdate = (): {
     })
 
     dialog.value?.onOk(() => {
+      clearDialog()
       window.electron.updater?.startUpdateDownload()
     })
   }
@@ -119,25 +118,35 @@ const useAutoUpdate = (): {
    * @param progress 下载进度信息
    */
   function showDownloadingDialog(progress: ProgressInfo): void {
+    updateStatus.value = 'downloading'
+
     downloadProgress.value = {
-      percent: progress.percent,
+      percent: Math.floor(progress.percent),
       bytesPerSecond: progress.bytesPerSecond,
       transferred: progress.transferred,
       total: progress.total
     }
 
-    if (dialog.value) {
-      dialog.value.update({
-        message: `正在下载更新：${downloadSpeed.value} · ${transferredSize.value} / ${totalSize.value}`
-      })
+    if (downloadProgress.value.percent < 100) {
+      if (dialog.value) {
+        dialog.value.update({
+          title: '下载中',
+          message: `<div>每秒下载：${downloadSpeed.value}</div>
+                    <div>已下载：${transferredSize.value} / ${totalSize.value}</div>`,
+          html: true,
+          ok: false
+        })
+      } else {
+        handleDialog({
+          title: '下载中',
+          message: `<div>每秒下载：${downloadSpeed.value}</div>
+                    <div>已下载：${transferredSize.value} / ${totalSize.value}</div>`,
+          html: true,
+          ok: false
+        })
+      }
     } else {
-      updateStatus.value = 'downloading'
-
-      handleDialog({
-        title: '下载更新',
-        message: `正在下载更新：${(progress.percent * 100).toFixed(2)}%`,
-        persistent: true
-      })
+      clearDialog()
     }
   }
 
@@ -160,6 +169,7 @@ const useAutoUpdate = (): {
     })
 
     dialog.value?.onOk(() => {
+      clearDialog()
       window.electron.updater?.installUpdate()
     })
   }
@@ -184,6 +194,7 @@ const useAutoUpdate = (): {
     })
 
     dialog.value?.onOk(() => {
+      clearDialog()
       window.electron.updater?.checkForUpdate()
     })
   }

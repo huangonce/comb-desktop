@@ -19,7 +19,7 @@ import { logger } from './logger.service'
 
 // 配置常量
 const INITIAL_UPDATE_DELAY = 5_000
-const DEV_MOCK_UPDATE_DELAY = 5_000
+// const DEV_MOCK_UPDATE_DELAY = 5_000
 const AUTO_INSTALL_ON_QUIT = true
 
 // 确保安全发送消息到渲染进程
@@ -49,27 +49,27 @@ channel: beta`
   }
 }
 
-function scheduleMockUpdate(): void {
-  setTimeout(() => {
-    const fakeInfo: UpdateInfo = {
-      version: '1.0.3',
-      releaseDate: new Date().toISOString(),
-      releaseName: 'Dev Environment Mock Update',
-      releaseNotes: `## New Features
-- Added mock update functionality
-- Optimized development experience
+// function scheduleMockUpdate(): void {
+//   setTimeout(() => {
+//     const fakeInfo: UpdateInfo = {
+//       version: '1.0.3',
+//       releaseDate: new Date().toISOString(),
+//       releaseName: 'Dev Environment Mock Update',
+//       releaseNotes: `## New Features
+// - Added mock update functionality
+// - Optimized development experience
 
-## Fixes
-- Fixed several known issues`,
-      path: '',
-      sha512: '',
-      files: []
-    }
+// ## Fixes
+// - Fixed several known issues`,
+//       path: '',
+//       sha512: '',
+//       files: []
+//     }
 
-    safeSend('update-available', fakeInfo)
-    logger.info('Mock update check: New version 1.0.3 found')
-  }, DEV_MOCK_UPDATE_DELAY)
-}
+//     safeSend('update-available', fakeInfo)
+//     logger.info('Mock update check: New version 1.0.3 found')
+//   }, DEV_MOCK_UPDATE_DELAY)
+// }
 
 async function setupDevAutoUpdate(): Promise<void> {
   if (app.isPackaged) return
