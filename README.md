@@ -56,19 +56,19 @@ comb-desktop/
 │ │ ├── stores/ # Pinia 状态管理
 │ │ ├── pages/ # 页面组件
 │ │ │ └── dashboard/
-│ │ │   └── collect/
-│ │ │     └── AlibabaView.vue # 阿里巴巴采集页面
+│ │ │ └── collect/
+│ │ │ └── AlibabaView.vue # 阿里巴巴采集页面
 │ │ ├── App.vue # 根组件
 │ │ ├── main.ts # 入口文件
 │ │ └── env.d.ts # 类型声明
 │ └── shared/ # 共享代码
-│   └── ipc-channels.ts # IPC通道定义
-├── tests/ # 测试文件
+│ └── ipc-channels.ts # IPC通道定义
+├── scripts/ # 测试和分析脚本
 │ ├── analyze-page.js # 页面结构分析
 │ ├── test-alibaba.js # 基础功能测试
 │ ├── test-captcha.js # 验证码处理测试
 │ ├── test-selectors.js # 选择器测试
-│ └── README.md # 测试文件说明
+│ └── README.md # 脚本文件说明
 ├── electron.vite.config.ts # 主配置文件
 ├── package.json
 └── tsconfig.json
@@ -77,6 +77,7 @@ comb-desktop/
 ## 功能特性
 
 ### 阿里巴巴供应商信息采集
+
 - 使用Playwright自动化浏览器进行数据采集
 - 支持关键词搜索供应商
 - 提取供应商详细信息（公司名称、联系方式、地址等）
@@ -84,7 +85,8 @@ comb-desktop/
 - 实时进度显示和错误处理
 
 ### 开发和测试
-- `tests/` 文件夹包含了完整的测试脚本
+
+- `scripts/` 文件夹包含了完整的测试脚本
 - 支持页面结构分析和选择器调试
 - 详细的日志记录和错误处理
 
@@ -92,16 +94,16 @@ comb-desktop/
 
 ```bash
 # 分析阿里巴巴页面结构
-node tests/analyze-page.js
+node scripts/analyze-page.js
 
 # 测试基础采集功能
-node tests/test-alibaba.js
+node scripts/test-alibaba.js
 
 # 测试验证码处理
-node tests/test-captcha.js
+node scripts/test-captcha.js
 
 # 测试页面选择器
-node tests/test-selectors.js
+node scripts/test-selectors.js
 ```
 
 npx electron-builder build --win --publish always

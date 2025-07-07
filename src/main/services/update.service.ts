@@ -88,6 +88,12 @@ async function setupDevAutoUpdate(): Promise<void> {
   }
 
   autoUpdater.forceDevUpdateConfig = true
+
+  // setTimeout(() => {
+  //   autoUpdater.checkForUpdates().catch((error) => {
+  //     logger.error('Startup update check failed:', error)
+  //   })
+  // }, INITIAL_UPDATE_DELAY)
   // scheduleMockUpdate()
 }
 
