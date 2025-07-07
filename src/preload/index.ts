@@ -8,7 +8,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { UpdateInfo, ProgressInfo, UpdateDownloadedEvent } from 'electron-updater'
-import { UPDATE_EVENTS, UPDATE_ACTIONS } from '../shared/ipc-channels'
+import { UPDATE_EVENTS, UPDATE_ACTIONS, ALIBABA_CHANNELS } from '../shared/ipc-channels'
 
 const unifiedAPI = {
   /**
@@ -56,6 +56,22 @@ const unifiedAPI = {
     },
     onUpdateError: (callback: (error: string) => void) => {
       ipcRenderer.on(UPDATE_EVENTS.ERROR, (_, error: string) => callback(error))
+    }
+  },
+
+  alibaba: {
+    searchSuppliers: (keyword: string) =>
+      ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_SUPPLIERS, keyword),
+    onSearchProgress: (callback: (message: string) => void) => {
+      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_PROGRESS, (_, message: string) => callback(message))
+    },
+    onSearchComplete: (callback: (suppliers: unknown[]) => void) => {
+      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_COMPLETE, (_, suppliers: unknown[]) =>
+        callback(suppliers)
+      )
+    },
+    onSearchError: (callback: (error: string) => void) => {
+      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_ERROR, (_, error: string) => callback(error))
     }
   }
 }

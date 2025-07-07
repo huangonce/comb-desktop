@@ -13,3 +13,11 @@ export const UPDATE_ACTIONS = {
   DOWNLOAD: 'start-update-download',
   INSTALL: 'install-update'
 }
+
+// 阿里巴巴采集通道
+export const ALIBABA_CHANNELS = {
+  SEARCH_SUPPLIERS: 'alibaba-search-suppliers',
+  SEARCH_PROGRESS: 'alibaba-search-progress',
+  SEARCH_COMPLETE: 'alibaba-search-complete',
+  SEARCH_ERROR: 'alibaba-search-error'
+}

@@ -6,6 +6,26 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { UpdateInfo, ProgressInfo, UpdateDownloadedEvent } from 'electron-updater'
 
+interface SupplierInfo {
+  id: number
+  chineseName: string
+  englishName: string
+  phone: string
+  email: string
+  country: string
+  province: string
+  city: string
+  district: string
+  address: string
+  website: string
+  establishedYear: string
+  creditCode: string
+  companyType?: string
+  businessScope?: string
+  yearRange?: string
+  tradeCapacity?: string
+}
+
 interface UnifiedElectronAPI extends ElectronAPI {
   /**
    * 调用主进程方法
@@ -39,6 +59,15 @@ interface UnifiedElectronAPI extends ElectronAPI {
     onDownloadProgress: (callback: (progress: ProgressInfo) => void) => void
     onUpdateDownloaded: (callback: (event: UpdateDownloadedEvent) => void) => void
     onUpdateError: (callback: (error: string) => void) => void
+  }
+
+  alibaba?: {
+    searchSuppliers: (
+      keyword: string
+    ) => Promise<{ success: boolean; data?: SupplierInfo[]; error?: string }>
+    onSearchProgress: (callback: (message: string) => void) => void
+    onSearchComplete: (callback: (suppliers: SupplierInfo[]) => void) => void
+    onSearchError: (callback: (error: string) => void) => void
   }
 }
 

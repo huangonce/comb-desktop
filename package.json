@@ -23,12 +23,14 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
+    "@playwright/test": "^1.53.2",
     "@quasar/extras": "^1.17.0",
     "dayjs": "^1.11.13",
     "dompurify": "^3.2.6",
     "electron-log": "^5.4.1",
     "electron-updater": "^6.3.9",
     "pinia": "^3.0.3",
+    "playwright": "^1.53.2",
     "quasar": "^2.18.1",
     "vue-router": "^4.5.1"
   },
