@@ -19,6 +19,7 @@ const useAutoUpdate = (): {
   updateInfo: typeof updateInfo
   downloadProgress: typeof downloadProgress
   errorMessage: typeof errorMessage
+  checkForUpdates: typeof checkForUpdates
 } => {
   const $q = useQuasar()
 
@@ -95,6 +96,9 @@ const useAutoUpdate = (): {
    * @param info 更新信息
    */
   function showAvailableUpdaterDialog(info: UpdateInfo): void {
+    // 如果已经显示过更新对话框，则不再显示
+    if (updateStatus.value === 'available') return
+
     updateStatus.value = 'available'
     updateInfo.value = info
 
@@ -199,6 +203,18 @@ const useAutoUpdate = (): {
     })
   }
 
+  // 添加手动检查更新方法
+  const checkForUpdates = (): void => {
+    if (!isElectron()) return
+
+    updateStatus.value = 'idle'
+    errorMessage.value = ''
+
+    window.electron.updater?.checkForUpdate().catch((error: Error) => {
+      showUpdaterErrorDialog(error.message)
+    })
+  }
+
   const initEventListeners = (): void => {
     if (!isElectron()) {
       console.warn('AutoUpdater is only available in Electron environment.')
@@ -212,13 +228,11 @@ const useAutoUpdate = (): {
     window.electron.updater?.onUpdateDownloaded(showDownloadedDialog)
     window.electron.updater?.onUpdateError(showUpdaterErrorDialog)
 
-    console.log()
     // 检查更新
-    window.electron.updater?.checkForUpdate().catch((error: Error) => {
-      showUpdaterErrorDialog(error.message)
-    })
+    // window.electron.updater?.checkForUpdate().catch((error: Error) => {
+    //   showUpdaterErrorDialog(error.message)
+    // })
   }
-
   const cleanupEventListeners = (): void => {
     if (!isElectron()) {
       console.warn('AutoUpdater is only available in Electron environment.')
@@ -247,7 +261,9 @@ const useAutoUpdate = (): {
     updateStatus,
     updateInfo,
     downloadProgress,
-    errorMessage
+    errorMessage,
+
+    checkForUpdates
   }
 }
 
