@@ -42,10 +42,10 @@ channel: beta`
 
   try {
     await fs.writeFile(configPath, configContent)
-    logger.info('Created dev environment update config file:', configPath)
+    logger.info('创建开发环境更新配置文件:', configPath)
   } catch (error) {
     const message = getErrorMessage(error)
-    logger.error('Failed to create dev config:', message)
+    logger.error('创建开发环境更新配置失败:', message)
   }
 }
 
@@ -81,7 +81,7 @@ async function setupDevAutoUpdate(): Promise<void> {
     autoUpdater.updateConfigPath = configPath
   } catch (error) {
     const message = getErrorMessage(error)
-    logger.warn(`Dev update config not found: ${configPath}`, message)
+    logger.warn(`开发环境更新配置未找到: ${configPath}`, message)
 
     await createDevConfig(configPath)
     autoUpdater.updateConfigPath = configPath
@@ -99,28 +99,28 @@ async function setupDevAutoUpdate(): Promise<void> {
 
 function setupListeners(): void {
   autoUpdater.on('update-available', (info: UpdateInfo) => {
-    logger.info(`New version found: ${info.version}`)
+    logger.info(`发现新版本: ${info.version}`)
     safeSend('update-available', info)
   })
 
   autoUpdater.on('update-not-available', (info: UpdateInfo) => {
-    logger.info(`Already on latest version: ${app.getVersion()}`)
+    logger.info(`已经是最新版本: ${app.getVersion()}`)
     safeSend('update-not-available', info)
   })
 
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
     const roundedPercent = Math.floor(progress.percent)
-    logger.info(`Download progress: ${roundedPercent}%`)
+    logger.info(`下载进度: ${roundedPercent}%`)
     safeSend('download-progress', progress)
   })
 
   autoUpdater.on('update-downloaded', (event: UpdateDownloadedEvent) => {
-    logger.info(`Update downloaded: ${event.version}`)
+    logger.info(`更新下载完成: ${event.version}`)
     safeSend('update-downloaded', event)
   })
 
   autoUpdater.on('error', (error: Error) => {
-    logger.error('Update error:', error)
+    logger.error('更新错误:', error)
     // if (!app.isPackaged) {
     //   dialog.showErrorBox('Update Error', error.message)
     // }
@@ -131,12 +131,12 @@ function setupListeners(): void {
 function setupIpcHandlers(): void {
   ipcMain.handle('check-for-update', async () => {
     try {
-      logger.info('Starting manual update check...')
+      logger.info('开始手动更新检查...')
       await autoUpdater.checkForUpdates()
-      logger.info('Manual update check completed')
+      logger.info('手动更新检查完成')
     } catch (error) {
       const message = getErrorMessage(error)
-      logger.error('Manual update check failed:', message)
+      logger.error('手动更新检查失败:', message)
       safeSend('update-error', message)
     }
   })
@@ -144,7 +144,7 @@ function setupIpcHandlers(): void {
   ipcMain.handle('start-update-download', () => {
     autoUpdater.downloadUpdate().catch((error) => {
       const message = getErrorMessage(error)
-      logger.error('Download update failed:', message)
+      logger.error('下载更新失败:', message)
       safeSend('update-error', message)
     })
   })
@@ -175,7 +175,7 @@ export const setupAutoUpdate = (): void => {
   app.isPackaged &&
     setTimeout(() => {
       autoUpdater.checkForUpdates().catch((error) => {
-        logger.error('Startup update check failed:', error)
+        logger.error('启动更新检查失败:', error)
       })
     }, INITIAL_UPDATE_DELAY)
 }
