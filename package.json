@@ -1,6 +1,6 @@
 {
   "name": "comb-desktop",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "An Electron application with Vue and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -23,14 +23,13 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
-    "@playwright/test": "^1.53.2",
     "@quasar/extras": "^1.17.0",
     "dayjs": "^1.11.13",
     "dompurify": "^3.2.6",
     "electron-log": "^5.4.1",
     "electron-updater": "^6.3.9",
     "pinia": "^3.0.3",
-    "playwright": "^1.53.2",
+    "playwright-core": "^1.53.2",
     "quasar": "^2.18.1",
     "vue-router": "^4.5.1"
   },
@@ -38,6 +37,7 @@
     "@electron-toolkit/eslint-config-prettier": "3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
+    "@playwright/test": "^1.53.2",
     "@quasar/vite-plugin": "^1.9.0",
     "@types/node": "^22.14.1",
     "@vitejs/plugin-vue": "^5.2.3",

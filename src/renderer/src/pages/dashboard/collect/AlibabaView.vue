@@ -92,117 +92,113 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="q-pa-md">
-    <q-input
-      v-model.trim="keyword"
-      stack-label
-      outlined
-      bottom-slots
-      label="点击此处输入供应商关键词"
-      bg-color="white"
-      :dense="false"
-      @keyup.enter="eSearch"
-    >
-      <template #append>
-        <q-btn
-          color="primary"
-          icon="search"
-          label="查询"
-          :loading="loading"
-          :disable="loading"
-          @click="eSearch"
-        />
-      </template>
-    </q-input>
+  <q-input
+    v-model.trim="keyword"
+    stack-label
+    outlined
+    bottom-slots
+    label="点击此处输入供应商关键词"
+    bg-color="white"
+    :dense="false"
+    @keyup.enter="eSearch"
+  >
+    <template #append>
+      <q-btn
+        color="primary"
+        icon="search"
+        label="查询"
+        :loading="loading"
+        :disable="loading"
+        @click="eSearch"
+      />
+    </template>
+  </q-input>
 
-    <!-- 进度信息 -->
-    <div v-if="loading || progressMessage" class="q-mt-md">
-      <q-linear-progress :indeterminate="loading" color="primary" size="4px" class="q-mb-sm" />
-      <div class="text-caption text-primary">
-        {{ progressMessage || '正在搜索...' }}
-      </div>
+  <!-- 进度信息 -->
+  <div v-if="loading || progressMessage" class="q-mt-md">
+    <q-linear-progress :indeterminate="loading" color="primary" size="4px" class="q-mb-sm" />
+    <div class="text-caption text-primary">
+      {{ progressMessage || '正在搜索...' }}
     </div>
+  </div>
 
-    <!-- 错误信息 -->
-    <q-banner v-if="errorMessage" class="bg-negative text-white q-mt-md" dense>
-      <template #avatar>
-        <q-icon name="error" color="white" />
-      </template>
-      {{ errorMessage }}
-      <template #action>
-        <q-btn flat color="white" label="关闭" @click="errorMessage = ''" />
-      </template>
-    </q-banner>
+  <!-- 错误信息 -->
+  <q-banner v-if="errorMessage" class="bg-red text-white q-mt-md" dense>
+    <template #avatar>
+      <q-icon name="error" color="white" />
+    </template>
+    {{ errorMessage }}
+    <template #action>
+      <q-btn flat color="white" label="关闭" @click="errorMessage = ''" />
+    </template>
+  </q-banner>
 
-    <!-- 搜索结果统计 -->
-    <div v-if="suppliers.length > 0" class="q-mt-md q-mb-sm">
-      <q-chip color="primary" text-color="white" icon="business">
-        找到 {{ suppliers.length }} 个供应商
-      </q-chip>
-    </div>
+  <!-- 搜索结果统计 -->
+  <div v-if="suppliers.length > 0" class="q-mt-md q-mb-sm">
+    <q-chip color="primary" text-color="white" icon="business">
+      找到 {{ suppliers.length }} 个供应商
+    </q-chip>
+  </div>
 
-    <!-- 供应商列表表格 -->
-    <q-markup-table v-if="suppliers.length > 0" class="q-mt-md">
-      <thead>
-        <tr>
-          <th class="text-left">序号</th>
-          <th class="text-left">中文名称</th>
-          <th class="text-left">英文名称</th>
-          <th class="text-left">电话</th>
-          <th class="text-left">邮箱</th>
-          <th class="text-left">国家</th>
-          <th class="text-left">省份</th>
-          <th class="text-left">城市</th>
-          <th class="text-left">地址</th>
-          <th class="text-left">官网</th>
-          <th class="text-left">成立年份</th>
-          <th class="text-left">信用码</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="supplier in suppliers" :key="supplier.id">
-          <td class="text-left">{{ supplier.id }}</td>
-          <td class="text-left">{{ supplier.chineseName || '-' }}</td>
-          <td class="text-left">{{ supplier.englishName || '-' }}</td>
-          <td class="text-left">{{ supplier.phone || '-' }}</td>
-          <td class="text-left">{{ supplier.email || '-' }}</td>
-          <td class="text-left">{{ supplier.country || '-' }}</td>
-          <td class="text-left">{{ supplier.province || '-' }}</td>
-          <td class="text-left">{{ supplier.city || '-' }}</td>
-          <td class="text-left">{{ supplier.address || '-' }}</td>
-          <td class="text-left">
-            <a
-              v-if="supplier.website"
-              :href="
-                supplier.website.startsWith('http')
-                  ? supplier.website
-                  : 'https://' + supplier.website
-              "
-              target="_blank"
-              class="text-primary"
-            >
-              {{ supplier.website }}
-            </a>
-            <span v-else>-</span>
-          </td>
-          <td class="text-left">{{ supplier.establishedYear || '-' }}</td>
-          <td class="text-left">{{ supplier.creditCode || '-' }}</td>
-        </tr>
-      </tbody>
-    </q-markup-table>
+  <!-- 供应商列表表格 -->
+  <q-markup-table v-if="suppliers.length > 0" class="q-mt-md">
+    <thead>
+      <tr>
+        <th class="text-left">序号</th>
+        <th class="text-left">中文名称</th>
+        <th class="text-left">英文名称</th>
+        <th class="text-left">电话</th>
+        <th class="text-left">邮箱</th>
+        <th class="text-left">国家</th>
+        <th class="text-left">省份</th>
+        <th class="text-left">城市</th>
+        <th class="text-left">地址</th>
+        <th class="text-left">官网</th>
+        <th class="text-left">成立年份</th>
+        <th class="text-left">信用码</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr v-for="supplier in suppliers" :key="supplier.id">
+        <td class="text-left">{{ supplier.id }}</td>
+        <td class="text-left">{{ supplier.chineseName || '-' }}</td>
+        <td class="text-left">{{ supplier.englishName || '-' }}</td>
+        <td class="text-left">{{ supplier.phone || '-' }}</td>
+        <td class="text-left">{{ supplier.email || '-' }}</td>
+        <td class="text-left">{{ supplier.country || '-' }}</td>
+        <td class="text-left">{{ supplier.province || '-' }}</td>
+        <td class="text-left">{{ supplier.city || '-' }}</td>
+        <td class="text-left">{{ supplier.address || '-' }}</td>
+        <td class="text-left">
+          <a
+            v-if="supplier.website"
+            :href="
+              supplier.website.startsWith('http') ? supplier.website : 'https://' + supplier.website
+            "
+            target="_blank"
+            class="text-primary"
+          >
+            {{ supplier.website }}
+          </a>
+          <span v-else>-</span>
+        </td>
+        <td class="text-left">{{ supplier.establishedYear || '-' }}</td>
+        <td class="text-left">{{ supplier.creditCode || '-' }}</td>
+      </tr>
+    </tbody>
+  </q-markup-table>
 
-    <!-- 空状态 -->
-    <div v-else-if="!loading && keyword && !errorMessage" class="text-center q-mt-xl q-pt-xl">
-      <q-icon name="search_off" size="64px" color="grey-5" />
-      <div class="text-h6 text-grey-8 q-mt-md">未找到相关供应商</div>
-      <div class="text-body2 text-grey-6">请尝试使用其他关键词搜索</div>
-    </div>
+  <!-- 空状态 -->
+  <div v-else-if="!loading && keyword && !errorMessage" class="text-center q-mt-xl q-pt-xl">
+    <q-icon name="search_off" size="64px" color="grey-5" />
+    <div class="text-h6 text-grey-8 q-mt-md">未找到相关供应商</div>
+    <div class="text-body2 text-grey-6">请尝试使用其他关键词搜索</div>
+  </div>
 
-    <!-- 初始状态 -->
-    <div v-else-if="!loading && !keyword" class="text-center q-mt-xl q-pt-xl">
-      <q-icon name="search" size="64px" color="grey-5" />
-      <div class="text-h6 text-grey-8 q-mt-md">开始搜索阿里巴巴供应商</div>
-      <div class="text-body2 text-grey-6">输入关键词并点击查询按钮</div>
-    </div>
+  <!-- 初始状态 -->
+  <div v-else-if="!loading && !keyword" class="text-center q-mt-xl q-pt-xl">
+    <q-icon name="search" size="64px" color="grey-5" />
+    <div class="text-h6 text-grey-8 q-mt-md">开始搜索阿里巴巴供应商</div>
+    <div class="text-body2 text-grey-6">输入关键词并点击查询按钮</div>
   </div>
 </template>

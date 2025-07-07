@@ -107,3 +107,11 @@ node scripts/test-selectors.js
 ```
 
 npx electron-builder build --win --publish always
+
+# 只安装 Playwright 核心和 Chromium
+
+pnpm add playwright-core
+pnpm add @playwright/test -D
+npx playwright install chromium
+
+npx playwright install
