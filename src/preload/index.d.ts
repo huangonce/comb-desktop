@@ -5,26 +5,7 @@
  */
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { UpdateInfo, ProgressInfo, UpdateDownloadedEvent } from 'electron-updater'
-
-interface SupplierInfo {
-  id: number
-  chineseName: string
-  englishName: string
-  phone: string
-  email: string
-  country: string
-  province: string
-  city: string
-  district: string
-  address: string
-  website: string
-  establishedYear: string
-  creditCode: string
-  companyType?: string
-  businessScope?: string
-  yearRange?: string
-  tradeCapacity?: string
-}
+import type { SupplierInfo } from '../../shared/supplierInfo'
 
 interface UnifiedElectronAPI extends ElectronAPI {
   /**

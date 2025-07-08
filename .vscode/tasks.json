@@ -1,13 +1,13 @@
 {
-	"version": "2.0.0",
-	"tasks": [
-		{
-			"label": "install-playwright-chromium",
-			"type": "shell",
-			"command": "npx playwright install chromium",
-			"group": "build",
-			"isBackground": false,
-			"problemMatcher": []
-		}
-	]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "install-playwright-chromium",
+      "type": "shell",
+      "command": "npx playwright install chromium",
+      "group": "build",
+      "isBackground": false,
+      "problemMatcher": []
+    }
+  ]
 }

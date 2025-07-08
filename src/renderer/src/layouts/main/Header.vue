@@ -15,7 +15,7 @@ const handleCheckUpdate = (): void => {
 </script>
 
 <template>
-  <q-header reveal class="text-white" height-hint="98" style="background-color: #1d2129">
+  <q-header class="text-white" height-hint="98" style="background-color: #1d2129">
     <q-toolbar class="no-padding">
       <!-- <q-btn flat stretch icon="menu" @click="toggleLeftDrawer" /> -->
       <q-toolbar-title class="q-ml-md">
@@ -80,7 +80,7 @@ const handleCheckUpdate = (): void => {
       </q-btn-dropdown>
     </q-toolbar>
 
-    <q-tabs align="left" class="bg-grey-2 text-grey">
+    <q-tabs align="left" class="bg-grey-2 text-grey shadow-1">
       <q-route-tab
         v-for="page in pages"
         :key="page.path"

@@ -1,21 +1,6 @@
 <script setup lang="ts">
+import { SupplierInfo } from 'src/shared/supplierInfo'
 import { ref, onMounted, onUnmounted } from 'vue'
-
-interface SupplierInfo {
-  id: number
-  chineseName: string
-  englishName: string
-  phone: string
-  email: string
-  country: string
-  province: string
-  city: string
-  district: string
-  address: string
-  website: string
-  establishedYear: string
-  creditCode: string
-}
 
 const keyword = ref('')
 const loading = ref(false)
@@ -143,7 +128,7 @@ onUnmounted(() => {
   <!-- 供应商列表表格 -->
   <q-markup-table v-if="suppliers.length > 0" class="q-mt-md">
     <thead>
-      <tr>
+      <tr class="bg-grey-3">
         <th class="text-left">序号</th>
         <th class="text-left">中文名称</th>
         <th class="text-left">英文名称</th>
@@ -162,7 +147,11 @@ onUnmounted(() => {
       <tr v-for="supplier in suppliers" :key="supplier.id">
         <td class="text-left">{{ supplier.id }}</td>
         <td class="text-left">{{ supplier.chineseName || '-' }}</td>
-        <td class="text-left">{{ supplier.englishName || '-' }}</td>
+        <td class="text-left">
+          <a :href="supplier.albabaURL" target="_blank">
+            {{ supplier.englishName || '-' }}
+          </a>
+        </td>
         <td class="text-left">{{ supplier.phone || '-' }}</td>
         <td class="text-left">{{ supplier.email || '-' }}</td>
         <td class="text-left">{{ supplier.country || '-' }}</td>

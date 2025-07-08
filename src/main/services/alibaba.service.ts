@@ -1,66 +1,17 @@
-import { Browser, Page, Locator, BrowserContext } from 'playwright-core'
+import { Page, Locator } from 'playwright-core'
 import { BrowserService } from './browser.service'
 import { logger } from './logger.service'
+import { SupplierInfo } from '../../shared/supplierInfo'
 
 // 供应商信息接口
-export interface SupplierInfo {
-  id: number
-  chineseName: string
-  englishName: string
-  phone: string
-  email: string
-  country: string
-  province: string
-  city: string
-  district: string
-  address: string
-  website: string
-  establishedYear: string
-  creditCode: string
-  companyType?: string
-  businessScope?: string
-  yearRange?: string
-  tradeCapacity?: string
-}
 
 export class AlibabaService {
   private browserService: BrowserService
-  private browser: Browser | null = null
-  private context: BrowserContext | null = null
-  private page: Page | null = null
-  private readonly executablePath: string | undefined
 
   constructor() {
     // 在 Electron 应用中，Chromium 可执行文件路径
     // this.executablePath = this.getChromiumExecutablePath()
     this.browserService = new BrowserService()
-  }
-
-  /**
-   * 关闭浏览器
-   */
-  async closeBrowser(): Promise<void> {
-    try {
-      if (this.page) {
-        await this.page.close()
-        this.page = null
-        logger.log('页面已关闭')
-      }
-
-      if (this.context) {
-        await this.context.close()
-        this.context = null
-        logger.log('浏览器上下文已关闭')
-      }
-
-      if (this.browser) {
-        await this.browser.close()
-        this.browser = null
-        logger.log('浏览器已关闭')
-      }
-    } catch (error) {
-      logger.error('关闭浏览器时出错:', error)
-    }
   }
 
   /**
@@ -89,29 +40,22 @@ export class AlibabaService {
         })
 
         // 等待页面加载完成
-        await page.waitForTimeout(5000)
+        await page.waitForTimeout(5_000)
 
         // 检查是否有验证码或登录重定向
         if (await this.hasCaptchaOrLoginRedirect(page)) {
-          logger.log('检测到验证码或登录重定向，使用示例数据')
-          return this.getSampleSupplierData(keyword)
-        }
-
-        // 检查是否有供应商结果
-        const hasResults = await this.checkSupplierResults(page)
-        if (!hasResults) {
-          logger.log('未找到供应商元素，使用示例数据')
-          return this.getSampleSupplierData(keyword)
+          logger.log('检测到验证码或登录重定向')
+          return []
         }
 
         // 提取供应商信息
-        const suppliers = await this.extractSupplierInfo(page, keyword)
-        console.log(`第 ${attempt} 次尝试成功，找到 ${suppliers.length} 个供应商`)
+        const suppliers = await this.extractSupplierInfo(page)
+        logger.log(`第 ${attempt} 次尝试成功，找到 ${suppliers.length} 个供应商`)
 
         return suppliers
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
-        console.error(`第 ${attempt} 次搜索尝试失败:`, lastError.message)
+        logger.error(`第 ${attempt} 次搜索尝试失败:`, lastError.message)
 
         if (attempt < maxRetries) {
           const waitTime = attempt * 2000
@@ -124,15 +68,15 @@ export class AlibabaService {
       }
     }
 
-    // 如果所有重试都失败，返回示例数据而不是抛出错误
-    logger.log('所有搜索尝试都失败，返回示例数据')
-    return this.getSampleSupplierData(keyword)
+    // 如果所有重试都失败
+    logger.log('所有搜索尝试都失败')
+    return []
   }
 
   /**
    * 提取供应商信息
    */
-  private async extractSupplierInfo(page: Page, searchKeyword: string): Promise<SupplierInfo[]> {
+  private async extractSupplierInfo(page: Page): Promise<SupplierInfo[]> {
     const suppliers: SupplierInfo[] = []
     const startTime = Date.now()
 
@@ -146,242 +90,135 @@ export class AlibabaService {
       }
 
       // 多种可能的供应商卡片选择器，基于实际页面分析
-      const cardSelectors = [
-        '.list-item', // 阿里巴巴供应商目录的主要选择器
-        '[class*="supplier"]', // 包含supplier的类名
-        '[class*="company"]', // 包含company的类名
-        'article', // 文章元素可能包含供应商信息
-        '.item', // 通用的item选择器
-        '[data-role*="supplier"]', // 数据角色为supplier的元素
-        '.company-card', // 公司卡片
-        '.supplier-card' // 供应商卡片
-      ]
-
-      let supplierCards: Locator[] = []
-
-      // 尝试不同的选择器找到供应商卡片
-      for (const selector of cardSelectors) {
-        try {
-          supplierCards = await page.locator(selector).all()
-          if (supplierCards.length > 0) {
-            logger.log(`使用选择器 ${selector} 找到 ${supplierCards.length} 个供应商卡片`)
-            break
-          }
-        } catch (error) {
-          logger.warn(`选择器 ${selector} 查找失败:`, error)
-          continue
-        }
-      }
-
-      // 如果找不到预期的卡片，尝试更通用的选择器
-      if (supplierCards.length === 0) {
-        logger.log('尝试更通用的选择器...')
-        try {
-          supplierCards = await page
-            .locator('[class*="supplier"], [class*="company"], [class*="card"], [class*="item"]')
-            .all()
-          logger.log(`找到 ${supplierCards.length} 个可能的供应商元素`)
-        } catch (error) {
-          logger.error('通用选择器也失败:', error)
-        }
-      }
+      const cardSelectors = ['[class="factory-card"]']
+      const supplierCards: Locator[] = await this.checkSupplierResults(page, cardSelectors)
 
       // 限制处理的供应商数量，避免超时
-      const maxSuppliers = Math.min(supplierCards.length, 20)
-      console.log(`开始处理 ${maxSuppliers} 个供应商`)
 
-      for (let i = 0; i < maxSuppliers; i++) {
+      logger.log(`开始处理 ${supplierCards.length} 个供应商`)
+      for (let i = 0; i < supplierCards.length; i++) {
         try {
           const card = supplierCards[i]
 
-          // 检查处理时间，避免超时
-          const currentTime = Date.now()
-          if (currentTime - startTime > 45000) {
-            console.log('处理时间超过45秒，停止处理')
-            break
-          }
+          // // 检查处理时间，避免超时
+          // const currentTime = Date.now()
+          // if (currentTime - startTime > 45000) {
+          //   logger.log('处理时间超过45秒，停止处理')
+          //   break
+          // }
 
           // 提取基本信息 - 使用安全的提取方法
           const companyName = await this.extractTextSafe(card, [
-            'h3', // 常见的标题标签
-            'h4',
-            'h2',
-            '.title',
-            '.name',
-            'a[title]', // 链接标题
-            '[class*="title"]',
-            '[class*="name"]',
-            '[class*="company"]',
-            'strong', // 加粗文本可能是公司名
-            '.company-name',
-            '.supplier-name'
+            '.card-title .detail-info h3 a' // 常见的标题标签
           ])
-
-          if (!companyName) {
-            console.log(`第 ${i + 1} 个供应商没有公司名称，跳过`)
-            continue // 如果没有公司名称，跳过
-          }
-
-          const location = await this.extractTextSafe(card, [
-            '.company-location',
-            '.location',
-            '[class*="location"]',
-            '[class*="address"]',
-            '.address',
-            '.country',
-            '.region'
-          ])
-
-          const website = await this.extractAttributeSafe(
+          const companyURL = await this.extractAttributeSafe(
             card,
-            ['a[href*="alibaba.com"]', 'a[href]', '[href*="alibaba.com"]'],
+            ['.card-title .detail-info h3 a'],
             'href'
           )
 
-          const yearText = await this.extractTextSafe(card, [
-            '[class*="year"]',
-            '[class*="establish"]',
-            '.company-year',
-            '.founded',
-            '.since'
-          ])
+          // if (!companyName) {
+          //   logger.log(`第 ${i + 1} 个供应商没有公司名称，跳过`)
+          //   continue // 如果没有公司名称，跳过
+          // }
 
-          const contactInfo = await this.extractTextSafe(card, [
-            '.contact',
-            '[class*="contact"]',
-            '.phone',
-            '.email',
-            '.tel',
-            '.mobile'
-          ])
+          // const location = await this.extractTextSafe(card, [
+          //   '.company-location',
+          //   '.location',
+          //   '[class*="location"]',
+          //   '[class*="address"]',
+          //   '.address',
+          //   '.country',
+          //   '.region'
+          // ])
 
-          // 解析位置信息
-          const { country, province, city, district } = this.parseLocation(location)
+          // const website = await this.extractAttributeSafe(
+          //   card,
+          //   ['a[href*="alibaba.com"]', 'a[href]', '[href*="alibaba.com"]'],
+          //   'href'
+          // )
 
-          // 解析年份
-          const establishedYear = this.parseYear(yearText)
+          // const yearText = await this.extractTextSafe(card, [
+          //   '[class*="year"]',
+          //   '[class*="establish"]',
+          //   '.company-year',
+          //   '.founded',
+          //   '.since'
+          // ])
+
+          // const contactInfo = await this.extractTextSafe(card, [
+          //   '.contact',
+          //   '[class*="contact"]',
+          //   '.phone',
+          //   '.email',
+          //   '.tel',
+          //   '.mobile'
+          // ])
+
+          // // 解析位置信息
+          // const { country, province, city, district } = this.parseLocation(location)
+
+          // // 解析年份
+          // const establishedYear = this.parseYear(yearText)
 
           const supplier: SupplierInfo = {
             id: i + 1,
-            chineseName: companyName,
+            chineseName: '',
             englishName: companyName, // 阿里巴巴国际站主要显示英文名
-            phone: this.extractPhone(contactInfo),
-            email: this.extractEmail(contactInfo),
-            country: country || '中国',
-            province: province || '',
-            city: city || '',
-            district: district || '',
-            address: location || '',
-            website: website || '',
-            establishedYear: establishedYear || '',
+            albabaURL: companyURL,
+            phone: '',
+            email: '',
+            country: '',
+            province: '',
+            city: '',
+            district: '',
+            address: '',
+            website: '',
+            establishedYear: '',
+            // phone: this.extractPhone(contactInfo),
+            // email: this.extractEmail(contactInfo),
+            // country: country || '中国',
+            // province: province || '',
+            // city: city || '',
+            // district: district || '',
+            // address: location || '',
+            // website: website || '',
+            // establishedYear: establishedYear || '',
             creditCode: ''
           }
 
           suppliers.push(supplier)
-          console.log(`成功处理第 ${i + 1} 个供应商: ${companyName}`)
+          logger.log(`成功处理第 ${i + 1} 个供应商: ${companyName}`)
         } catch (error) {
-          console.error(`处理第 ${i + 1} 个供应商时出错:`, error)
+          logger.error(`处理第 ${i + 1} 个供应商时出错:`, error)
           continue
         }
       }
 
       const processingTime = Date.now() - startTime
-      console.log(
+      logger.log(
         `供应商信息提取完成，用时 ${processingTime}ms，成功提取 ${suppliers.length} 个供应商`
       )
 
-      // 如果没有提取到供应商，使用示例数据
+      // 如果没有提取到供应商
       if (suppliers.length === 0) {
-        console.log('未找到有效的供应商信息，使用示例数据以演示功能')
-        return this.getSampleSupplierData(searchKeyword)
+        logger.log('未找到有效的供应商信息')
+        return []
       }
 
       return suppliers
     } catch (error) {
-      console.error('提取供应商信息时出错:', error)
+      logger.error('提取供应商信息时出错:', error)
 
       // 如果提取失败但已有部分数据，返回已有数据
       if (suppliers.length > 0) {
-        console.log(`提取过程中出错，但已获得 ${suppliers.length} 个供应商数据`)
+        logger.log(`提取过程中出错，但已获得 ${suppliers.length} 个供应商数据`)
         return suppliers
       }
 
-      // 完全失败时返回示例数据
-      return this.getSampleSupplierData(searchKeyword)
+      // 完全失败时返回空数组
+      return []
     }
-  }
-
-  /**
-   * 获取示例供应商数据
-   */
-  private getSampleSupplierData(keyword: string): SupplierInfo[] {
-    const sampleSuppliers: SupplierInfo[] = [
-      {
-        id: 1,
-        chineseName: '广州名盟家具有限公司',
-        englishName: 'Guangzhou Mingmeng Furniture Co., Ltd.',
-        phone: '15812400982',
-        email: '2875921861@qq.com',
-        country: '中国',
-        province: '广东',
-        city: '广州',
-        district: '天河区',
-        address: '广州市天河区沐陂东路7号3楼',
-        website: 'www.mingmeng.com',
-        establishedYear: '2015-07-10',
-        creditCode: '914401063474284526'
-      },
-      {
-        id: 2,
-        chineseName: '佛山市南海区金沙新宇五金制品厂',
-        englishName: 'Foshan Nanhai Jinsha Xinyu Hardware Products Factory',
-        phone: '13922234567',
-        email: 'xinyu@hardware.com',
-        country: '中国',
-        province: '广东',
-        city: '佛山',
-        district: '南海区',
-        address: '佛山市南海区金沙镇工业园区',
-        website: 'www.xinyu-hardware.com',
-        establishedYear: '2010-03-15',
-        creditCode: '914406851234567890'
-      },
-      {
-        id: 3,
-        chineseName: '深圳市宝安区创新电子有限公司',
-        englishName: 'Shenzhen Baoan Innovation Electronics Co., Ltd.',
-        phone: '18765432109',
-        email: 'info@innovation-sz.com',
-        country: '中国',
-        province: '广东',
-        city: '深圳',
-        district: '宝安区',
-        address: '深圳市宝安区西乡街道创新工业园',
-        website: 'www.innovation-electronics.com',
-        establishedYear: '2018-06-20',
-        creditCode: '914403060987654321'
-      }
-    ]
-
-    const results: SupplierInfo[] = []
-
-    // 根据关键词筛选相关的示例供应商
-    if (keyword.toLowerCase().includes('furniture')) {
-      results.push(sampleSuppliers[0]) // 家具公司
-    }
-    if (keyword.toLowerCase().includes('hardware')) {
-      results.push(sampleSuppliers[1]) // 五金公司
-    }
-    if (keyword.toLowerCase().includes('electronic')) {
-      results.push(sampleSuppliers[2]) // 电子公司
-    }
-
-    // 如果没有匹配的关键词，返回所有示例
-    if (results.length === 0) {
-      results.push(...sampleSuppliers)
-    }
-
-    return results
   }
 
   /**
@@ -550,47 +387,22 @@ export class AlibabaService {
     }
   }
 
-  private async checkSupplierResults(page: Page): Promise<boolean> {
-    try {
-      // 多种可能的供应商卡片选择器
-      const cardSelectors = [
-        '.list-item',
-        '[class*="supplier"]',
-        '[class*="company"]',
-        'article',
-        '.item',
-        '[data-role*="supplier"]',
-        '.company-card',
-        '.supplier-card'
-      ]
+  private async checkSupplierResults(page: Page, cardSelectors: string[]): Promise<Locator[]> {
+    let supplierCards: Locator[] = []
 
-      // 尝试不同的选择器找到供应商卡片
-      for (const selector of cardSelectors) {
-        const count = await page.locator(selector).count()
-        if (count > 0) {
-          logger.log(`使用选择器 ${selector} 找到 ${count} 个供应商卡片`)
-          return true
+    for (const selector of cardSelectors) {
+      try {
+        supplierCards = await page.locator(selector).all()
+        if (supplierCards.length > 0) {
+          logger.log(`使用选择器 ${selector} 找到 ${supplierCards.length} 个供应商卡片`)
+          break
         }
+      } catch (error) {
+        logger.warn('检查供应商卡片时出错:', error)
+        continue
       }
-
-      // 尝试更通用的选择器
-      const genericSelectors = [
-        '[class*="supplier"], [class*="company"], [class*="card"], [class*="item"]'
-      ]
-
-      for (const selector of genericSelectors) {
-        const count = await page.locator(selector).count()
-        if (count > 0) {
-          logger.log(`使用通用选择器 ${selector} 找到 ${count} 个供应商元素`)
-          return true
-        }
-      }
-
-      logger.log('未找到任何供应商元素')
-      return false
-    } catch (error) {
-      logger.error('检查供应商结果时出错:', error)
-      return false
     }
+
+    return supplierCards
   }
 }
