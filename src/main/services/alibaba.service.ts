@@ -1,6 +1,6 @@
-import { chromium, Browser, Page, Locator, BrowserContext } from 'playwright-core'
-import path from 'path'
-import { app } from 'electron'
+import { Browser, Page, Locator, BrowserContext } from 'playwright-core'
+import { BrowserService } from './browser.service'
+import { logger } from './logger.service'
 
 // 供应商信息接口
 export interface SupplierInfo {
@@ -24,6 +24,7 @@ export interface SupplierInfo {
 }
 
 export class AlibabaService {
+  private browserService: BrowserService
   private browser: Browser | null = null
   private context: BrowserContext | null = null
   private page: Page | null = null
@@ -31,90 +32,8 @@ export class AlibabaService {
 
   constructor() {
     // 在 Electron 应用中，Chromium 可执行文件路径
-    this.executablePath = this.getChromiumExecutablePath()
-  }
-
-  /**
-   * 获取 Chromium 可执行文件路径
-   */
-  private getChromiumExecutablePath(): string | undefined {
-    try {
-      // 在开发环境中，使用系统安装的 Chromium
-      if (process.env.NODE_ENV === 'development') {
-        return undefined // 让 Playwright 自动查找
-      }
-
-      // 在生产环境中，可以指定打包后的 Chromium 路径
-      const userDataPath = app.getPath('userData')
-      const chromiumPath = path.join(userDataPath, 'chromium', 'chrome.exe')
-
-      return chromiumPath
-    } catch (error) {
-      console.warn('无法获取 Chromium 路径，使用默认配置:', error)
-      return undefined
-    }
-  }
-
-  /**
-   * 初始化浏览器
-   */
-  async initBrowser(): Promise<void> {
-    try {
-      if (!this.browser) {
-        const launchOptions = {
-          headless: false, // 在生产环境中建议设置为 true
-          executablePath: this.executablePath, // 使用指定的 Chromium 路径
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
-            '--disable-blink-features=AutomationControlled',
-            '--no-first-run',
-            '--no-default-browser-check',
-            '--disable-extensions',
-            '--disable-plugins',
-            '--disable-default-apps'
-          ],
-          timeout: 30000 // 30秒超时
-        }
-
-        this.browser = await chromium.launch(launchOptions)
-        console.log('Chromium 浏览器启动成功')
-      }
-
-      if (!this.context) {
-        this.context = await this.browser.newContext({
-          viewport: { width: 1920, height: 1080 },
-          userAgent:
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          extraHTTPHeaders: {
-            'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            Accept:
-              'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
-          },
-          ignoreHTTPSErrors: true,
-          javaScriptEnabled: true
-        })
-      }
-
-      if (!this.page) {
-        this.page = await this.context.newPage()
-
-        // 设置页面性能优化
-        await this.optimizePagePerformance()
-
-        console.log('页面创建成功')
-      }
-    } catch (error) {
-      console.error('初始化浏览器失败:', error)
-      throw new Error(`浏览器初始化失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
+    // this.executablePath = this.getChromiumExecutablePath()
+    this.browserService = new BrowserService()
   }
 
   /**
@@ -125,22 +44,22 @@ export class AlibabaService {
       if (this.page) {
         await this.page.close()
         this.page = null
-        console.log('页面已关闭')
+        logger.log('页面已关闭')
       }
 
       if (this.context) {
         await this.context.close()
         this.context = null
-        console.log('浏览器上下文已关闭')
+        logger.log('浏览器上下文已关闭')
       }
 
       if (this.browser) {
         await this.browser.close()
         this.browser = null
-        console.log('浏览器已关闭')
+        logger.log('浏览器已关闭')
       }
     } catch (error) {
-      console.error('关闭浏览器时出错:', error)
+      logger.error('关闭浏览器时出错:', error)
     }
   }
 
@@ -155,99 +74,74 @@ export class AlibabaService {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`开始第 ${attempt} 次搜索尝试，关键词: ${keyword}`)
-        await this.initBrowser()
-
-        if (!this.page) {
-          throw new Error('页面初始化失败')
-        }
+        logger.log(`开始第 ${attempt} 次搜索尝试，关键词: ${keyword}`)
+        const page = await this.browserService.initBrowser()
 
         // 使用供应商目录页面而不是搜索页面，避免验证码
         const searchUrl = `https://www.alibaba.com/trade/search?spm=a2700.galleryofferlist.page-tab-top.2.533913a0tlCuJh&fsb=y&IndexArea=product_en&SearchText=${encodeURIComponent(keyword)}&tab=supplier`
 
-        console.log('正在访问:', searchUrl)
+        logger.log('正在访问:', searchUrl)
 
         // 访问供应商目录页面
-        await this.page.goto(searchUrl, {
+        await page.goto(searchUrl, {
           waitUntil: 'domcontentloaded',
           timeout: 60000 // 增加超时时间
         })
 
         // 等待页面加载完成
-        await this.page.waitForTimeout(5000)
+        await page.waitForTimeout(5000)
 
-        // 检查是否有验证码
-        const hasCaptcha = await this.page
-          .locator(
-            'iframe[src*="captcha"], .nc_wrapper, [class*="captcha"], [class*="verify"], [class*="security"]'
-          )
-          .count()
-
-        if (hasCaptcha > 0) {
-          console.log('检测到验证码，跳过实际爬取，使用示例数据')
-          return this.getSampleSupplierData(keyword)
-        }
-
-        // 检查是否被重定向到登录页面
-        const currentUrl = this.page.url()
-        if (currentUrl.includes('login') || currentUrl.includes('signin')) {
-          console.log('被重定向到登录页面，使用示例数据')
+        // 检查是否有验证码或登录重定向
+        if (await this.hasCaptchaOrLoginRedirect(page)) {
+          logger.log('检测到验证码或登录重定向，使用示例数据')
           return this.getSampleSupplierData(keyword)
         }
 
         // 检查是否有供应商结果
-        const hasResults = await this.page
-          .locator('.list-item, [class*="supplier"], [class*="company"]')
-          .first()
-          .isVisible({ timeout: 10000 })
-          .catch(() => false)
-
+        const hasResults = await this.checkSupplierResults(page)
         if (!hasResults) {
-          console.log('未找到供应商元素，等待更长时间...')
-          await this.page.waitForTimeout(8000)
+          logger.log('未找到供应商元素，使用示例数据')
+          return this.getSampleSupplierData(keyword)
         }
 
         // 提取供应商信息
-        const suppliers = await this.extractSupplierInfo(keyword)
-
+        const suppliers = await this.extractSupplierInfo(page, keyword)
         console.log(`第 ${attempt} 次尝试成功，找到 ${suppliers.length} 个供应商`)
+
         return suppliers
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
         console.error(`第 ${attempt} 次搜索尝试失败:`, lastError.message)
 
         if (attempt < maxRetries) {
-          console.log(`等待 ${attempt * 2} 秒后重试...`)
-          await new Promise((resolve) => setTimeout(resolve, attempt * 2000))
+          const waitTime = attempt * 2000
+          logger.log(`等待 ${waitTime / 1000} 秒后重试...`)
+          await new Promise((resolve) => setTimeout(resolve, waitTime))
 
-          // 关闭当前浏览器会话，准备重试
-          await this.closeBrowser()
+          // 重置浏览器会话
+          await this.browserService.resetBrowserSession()
         }
       }
     }
 
     // 如果所有重试都失败，返回示例数据而不是抛出错误
-    console.log('所有搜索尝试都失败，返回示例数据')
+    logger.log('所有搜索尝试都失败，返回示例数据')
     return this.getSampleSupplierData(keyword)
   }
 
   /**
    * 提取供应商信息
    */
-  private async extractSupplierInfo(searchKeyword: string): Promise<SupplierInfo[]> {
-    if (!this.page) {
-      throw new Error('页面未初始化')
-    }
-
+  private async extractSupplierInfo(page: Page, searchKeyword: string): Promise<SupplierInfo[]> {
     const suppliers: SupplierInfo[] = []
     const startTime = Date.now()
 
     try {
       // 检查浏览器健康状态
-      const isHealthy = await this.checkBrowserHealth()
+      const isHealthy = await this.browserService.checkBrowserHealth()
       if (!isHealthy) {
-        console.log('浏览器状态不健康，重置会话')
-        await this.resetBrowserSession()
+        logger.log('浏览器状态不健康，重置会话')
+        await this.browserService.resetBrowserSession()
         throw new Error('浏览器会话已重置，需要重试')
       }
 
@@ -268,27 +162,27 @@ export class AlibabaService {
       // 尝试不同的选择器找到供应商卡片
       for (const selector of cardSelectors) {
         try {
-          supplierCards = await this.page.locator(selector).all()
+          supplierCards = await page.locator(selector).all()
           if (supplierCards.length > 0) {
-            console.log(`使用选择器 ${selector} 找到 ${supplierCards.length} 个供应商卡片`)
+            logger.log(`使用选择器 ${selector} 找到 ${supplierCards.length} 个供应商卡片`)
             break
           }
         } catch (error) {
-          console.warn(`选择器 ${selector} 查找失败:`, error)
+          logger.warn(`选择器 ${selector} 查找失败:`, error)
           continue
         }
       }
 
       // 如果找不到预期的卡片，尝试更通用的选择器
       if (supplierCards.length === 0) {
-        console.log('尝试更通用的选择器...')
+        logger.log('尝试更通用的选择器...')
         try {
-          supplierCards = await this.page
+          supplierCards = await page
             .locator('[class*="supplier"], [class*="company"], [class*="card"], [class*="item"]')
             .all()
-          console.log(`找到 ${supplierCards.length} 个可能的供应商元素`)
+          logger.log(`找到 ${supplierCards.length} 个可能的供应商元素`)
         } catch (error) {
-          console.error('通用选择器也失败:', error)
+          logger.error('通用选择器也失败:', error)
         }
       }
 
@@ -622,83 +516,81 @@ export class AlibabaService {
   }
 
   /**
-   * 检查浏览器是否健康运行
+   * 检查是否有验证码或登录重定向
    */
-  async checkBrowserHealth(): Promise<boolean> {
+  private async hasCaptchaOrLoginRedirect(page: Page): Promise<boolean> {
     try {
-      if (!this.browser || !this.context || !this.page) {
-        return false
+      // 检查验证码
+      const captchaSelectors = [
+        'iframe[src*="captcha"]',
+        '.nc_wrapper',
+        '[class*="captcha"]',
+        '[class*="verify"]',
+        '[class*="security"]'
+      ]
+
+      for (const selector of captchaSelectors) {
+        if ((await page.locator(selector).count()) > 0) {
+          logger.log('检测到验证码元素:', selector)
+          return true
+        }
       }
 
-      // 检查浏览器是否仍然连接
-      const isConnected = this.browser.isConnected()
-      if (!isConnected) {
-        console.log('浏览器连接已断开')
-        return false
+      // 检查是否被重定向到登录页面
+      const currentUrl = page.url()
+      if (currentUrl.includes('login') || currentUrl.includes('signin')) {
+        logger.log('检测到登录重定向:', currentUrl)
+        return true
       }
 
-      // 检查页面是否响应
-      await this.page.evaluate('() => document.readyState')
-
-      return true
+      return false
     } catch (error) {
-      console.error('浏览器健康检查失败:', error)
+      logger.warn('验证码检查失败:', error)
       return false
     }
   }
 
-  /**
-   * 重置浏览器会话
-   */
-  async resetBrowserSession(): Promise<void> {
-    console.log('重置浏览器会话...')
-    await this.closeBrowser()
-    await this.initBrowser()
-  }
-
-  /**
-   * 设置页面性能优化
-   */
-  private async optimizePagePerformance(): Promise<void> {
-    if (!this.page) return
-
+  private async checkSupplierResults(page: Page): Promise<boolean> {
     try {
-      // 禁用不必要的功能以提高性能
-      await this.page.addInitScript(() => {
-        // 禁用动画
-        Object.defineProperty(window, 'requestAnimationFrame', {
-          value: (callback: FrameRequestCallback) => setTimeout(callback, 16)
-        })
+      // 多种可能的供应商卡片选择器
+      const cardSelectors = [
+        '.list-item',
+        '[class*="supplier"]',
+        '[class*="company"]',
+        'article',
+        '.item',
+        '[data-role*="supplier"]',
+        '.company-card',
+        '.supplier-card'
+      ]
 
-        // 禁用自动播放
-        Object.defineProperty(HTMLMediaElement.prototype, 'autoplay', {
-          set: () => {}
-        })
-      })
-
-      // 设置请求拦截，只允许必要的资源
-      await this.page.route('**/*', (route) => {
-        const request = route.request()
-        // const resourceType = request.resourceType()
-        const url = request.url()
-
-        // 阻止广告、追踪和分析脚本
-        if (
-          url.includes('google-analytics') ||
-          url.includes('googletagmanager') ||
-          url.includes('facebook.com') ||
-          url.includes('doubleclick')
-          // resourceType === 'image' ||
-          // resourceType === 'font' ||
-          // resourceType === 'media'
-        ) {
-          route.abort()
-        } else {
-          route.continue()
+      // 尝试不同的选择器找到供应商卡片
+      for (const selector of cardSelectors) {
+        const count = await page.locator(selector).count()
+        if (count > 0) {
+          logger.log(`使用选择器 ${selector} 找到 ${count} 个供应商卡片`)
+          return true
         }
-      })
+      }
+
+      // 尝试更通用的选择器
+      const genericSelectors = [
+        '[class*="supplier"], [class*="company"], [class*="card"], [class*="item"]'
+      ]
+
+      for (const selector of genericSelectors) {
+        const count = await page.locator(selector).count()
+        if (count > 0) {
+          logger.log(`使用通用选择器 ${selector} 找到 ${count} 个供应商元素`)
+          return true
+        }
+      }
+
+      logger.log('未找到任何供应商元素')
+      return false
     } catch (error) {
-      console.warn('设置页面性能优化失败:', error)
+      logger.error('检查供应商结果时出错:', error)
+      return false
     }
   }
 }
