@@ -1,7 +1,7 @@
 import { Page, Locator } from 'playwright-core'
 import { BrowserService } from './browser.service'
 import { logger } from './logger.service'
-import { SupplierInfo } from '../../shared/supplierInfo'
+import { SupplierInfo } from '../../shared/SupplierInfo'
 
 // 供应商信息接口
 
