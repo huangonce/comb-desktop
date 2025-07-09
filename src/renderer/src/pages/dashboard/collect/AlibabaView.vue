@@ -84,6 +84,8 @@ onUnmounted(() => {
     bottom-slots
     label="点击此处输入供应商关键词"
     bg-color="white"
+    :readonly="loading"
+    :disable="loading"
     :dense="false"
     @keyup.enter="eSearch"
   >
@@ -119,63 +121,65 @@ onUnmounted(() => {
   </q-banner>
 
   <!-- 搜索结果统计 -->
-  <div v-if="suppliers.length > 0" class="q-mt-md q-mb-sm">
-    <q-chip color="primary" text-color="white" icon="business">
+  <div v-if="suppliers.length > 0">
+    <q-chip square color="primary" text-color="white" icon="business">
       找到 {{ suppliers.length }} 个供应商
     </q-chip>
-  </div>
 
-  <!-- 供应商列表表格 -->
-  <q-markup-table v-if="suppliers.length > 0" class="q-mt-md">
-    <thead>
-      <tr class="bg-grey-3">
-        <th class="text-left">序号</th>
-        <th class="text-left">中文名称</th>
-        <th class="text-left">英文名称</th>
-        <th class="text-left">电话</th>
-        <th class="text-left">邮箱</th>
-        <th class="text-left">国家</th>
-        <th class="text-left">省份</th>
-        <th class="text-left">城市</th>
-        <th class="text-left">地址</th>
-        <th class="text-left">官网</th>
-        <th class="text-left">成立年份</th>
-        <th class="text-left">信用码</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr v-for="supplier in suppliers" :key="supplier.id">
-        <td class="text-left">{{ supplier.id }}</td>
-        <td class="text-left">{{ supplier.chineseName || '-' }}</td>
-        <td class="text-left">
-          <a :href="supplier.albabaURL" target="_blank">
-            {{ supplier.englishName || '-' }}
-          </a>
-        </td>
-        <td class="text-left">{{ supplier.phone || '-' }}</td>
-        <td class="text-left">{{ supplier.email || '-' }}</td>
-        <td class="text-left">{{ supplier.country || '-' }}</td>
-        <td class="text-left">{{ supplier.province || '-' }}</td>
-        <td class="text-left">{{ supplier.city || '-' }}</td>
-        <td class="text-left">{{ supplier.address || '-' }}</td>
-        <td class="text-left">
-          <a
-            v-if="supplier.website"
-            :href="
-              supplier.website.startsWith('http') ? supplier.website : 'https://' + supplier.website
-            "
-            target="_blank"
-            class="text-primary"
-          >
-            {{ supplier.website }}
-          </a>
-          <span v-else>-</span>
-        </td>
-        <td class="text-left">{{ supplier.establishedYear || '-' }}</td>
-        <td class="text-left">{{ supplier.creditCode || '-' }}</td>
-      </tr>
-    </tbody>
-  </q-markup-table>
+    <!-- 供应商列表表格 -->
+    <q-markup-table class="q-mt-md">
+      <thead>
+        <tr class="bg-grey-3">
+          <th class="text-left">序号</th>
+          <th class="text-left">中文名称</th>
+          <th class="text-left">英文名称</th>
+          <th class="text-left">电话</th>
+          <th class="text-left">邮箱</th>
+          <th class="text-left">国家</th>
+          <th class="text-left">省份</th>
+          <th class="text-left">城市</th>
+          <th class="text-left">地址</th>
+          <th class="text-left">官网</th>
+          <th class="text-left">成立年份</th>
+          <th class="text-left">信用码</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="supplier in suppliers" :key="supplier.id">
+          <td class="text-left">{{ supplier.id }}</td>
+          <td class="text-left">{{ supplier.chineseName || '-' }}</td>
+          <td class="text-left">
+            <a :href="supplier.albabaURL" target="_blank">
+              {{ supplier.englishName || '-' }}
+            </a>
+          </td>
+          <td class="text-left">{{ supplier.phone || '-' }}</td>
+          <td class="text-left">{{ supplier.email || '-' }}</td>
+          <td class="text-left">{{ supplier.country || '-' }}</td>
+          <td class="text-left">{{ supplier.province || '-' }}</td>
+          <td class="text-left">{{ supplier.city || '-' }}</td>
+          <td class="text-left">{{ supplier.address || '-' }}</td>
+          <td class="text-left">
+            <a
+              v-if="supplier.website"
+              :href="
+                supplier.website.startsWith('http')
+                  ? supplier.website
+                  : 'https://' + supplier.website
+              "
+              target="_blank"
+              class="text-primary"
+            >
+              {{ supplier.website }}
+            </a>
+            <span v-else>-</span>
+          </td>
+          <td class="text-left">{{ supplier.establishedYear || '-' }}</td>
+          <td class="text-left">{{ supplier.creditCode || '-' }}</td>
+        </tr>
+      </tbody>
+    </q-markup-table>
+  </div>
 
   <!-- 空状态 -->
   <div v-else-if="!loading && keyword && !errorMessage" class="text-center q-mt-xl q-pt-xl">

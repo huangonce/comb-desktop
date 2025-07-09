@@ -10,7 +10,6 @@ export class AlibabaService {
 
   constructor() {
     // 在 Electron 应用中，Chromium 可执行文件路径
-    // this.executablePath = this.getChromiumExecutablePath()
     this.browserService = new BrowserService()
   }
 
@@ -28,7 +27,6 @@ export class AlibabaService {
         logger.log(`开始第 ${attempt} 次搜索尝试，关键词: ${keyword}`)
         const page = await this.browserService.initBrowser()
 
-        // 使用供应商目录页面而不是搜索页面，避免验证码
         const searchUrl = `https://www.alibaba.com/trade/search?spm=a2700.galleryofferlist.page-tab-top.2.533913a0tlCuJh&fsb=y&IndexArea=product_en&SearchText=${encodeURIComponent(keyword)}&tab=supplier`
 
         logger.log('正在访问:', searchUrl)

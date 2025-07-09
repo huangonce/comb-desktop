@@ -279,11 +279,6 @@ export class BrowserService {
    * @example
    * await browserService.resetBrowserSession();
    * console.log('浏览器会话已重置');
-   * @memberof BrowserService
-   * @description 重置浏览器会话
-   * @throws {Error} 如果重置浏览器会话失败
-   * @example
-   * await browserService.resetBrowserSession();
    */
   async resetBrowserSession(): Promise<void> {
     console.log('重置浏览器会话...')
