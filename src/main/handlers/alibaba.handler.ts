@@ -47,5 +47,5 @@ export function registerAlibabaHandlers(): void {
  * 清理阿里巴巴服务资源
  */
 export async function cleanupAlibabaService(): Promise<void> {
-  await alibabaService.closeBrowser()
+  //
 }

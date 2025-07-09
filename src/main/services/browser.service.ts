@@ -12,11 +12,6 @@ export interface BrowserConfig {
   timeout: number
 }
 
-/**
- * 浏览器服务类
- * @description 提供浏览器的初始化、关闭、健康检查等功能
- * @class BrowserService
- */
 export class BrowserService {
   private browser: Browser | null = null
   private context: BrowserContext | null = null
@@ -24,63 +19,69 @@ export class BrowserService {
   private config: BrowserConfig
   private readonly executablePath: string | undefined
 
+  // 提取为常量提高可读性
+  private static readonly DEFAULT_USER_AGENT =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  private static readonly LAUNCH_ARGS = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-web-security',
+    '--disable-features=VizDisplayCompositor',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-blink-features=AutomationControlled',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-extensions',
+    '--disable-plugins',
+    '--disable-default-apps'
+  ]
+
   /**
    * 构造函数
    * @param config {Partial<BrowserConfig>}
    * @description 创建浏览器服务实例
    */
   constructor(config?: Partial<BrowserConfig>) {
-    // 默认配置
-    const defaultConfig: BrowserConfig = {
-      headless: true,
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    this.config = {
+      headless: false,
+      userAgent: BrowserService.DEFAULT_USER_AGENT,
       viewport: { width: 1280, height: 800 },
-      timeout: 60000 // 60秒超时
+      timeout: 60000,
+      ...config
     }
 
-    this.config = { ...defaultConfig, ...config }
-
     if (!this.config.executablePath) {
-      // 设置默认的浏览器可执行路径
       this.executablePath = this.getChromiumExecutablePath()
     }
   }
 
-  /**
-   * 获取 Chromium 浏览器的可执行路径
-   * @returns {string | undefined}
-   * @description 获取 Chromium 浏览器的可执行路径
-   * @return {string | undefined} 返回 Chromium 可执行文件的路径，如果未找到则返回 undefined
-   * @throws {Error} 如果获取路径失败
-   * @example
-   * const executablePath = browserService.getChromiumExecutablePath();
-   * if (executablePath) {
-   *   console.log('Chromium 可执行路径:', executablePath);
-   * } else {
-   *   console.log('未找到 Chromium 可执行路径');
-   */
   private getChromiumExecutablePath(): string | undefined {
     try {
-      // 在开发环境中，使用系统安装的 Chromium
-      if (process.env.NODE_ENV === 'development') {
-        return undefined // 让 Playwright 自动查找
-      }
+      if (process.env.NODE_ENV === 'development') return undefined
 
-      // 在生产环境中，可以指定打包后的 Chromium 路径
       const userDataPath = app.getPath('userData')
       const platform = process.platform
-      let chromiumDir = ''
 
-      if (platform === 'win32') {
-        chromiumDir = path.join(userDataPath, 'chromium', 'chrome-win')
-      } else if (platform === 'darwin') {
-        chromiumDir = path.join(userDataPath, 'chromium', 'chrome-mac')
-      } else {
-        chromiumDir = path.join(userDataPath, 'chromium', 'chrome-linux')
+      let executableName: string
+      let chromiumDir: string
+
+      switch (platform) {
+        case 'win32':
+          chromiumDir = path.join(userDataPath, 'chromium', 'chrome-win')
+          executableName = 'chrome.exe'
+          break
+        case 'darwin':
+          chromiumDir = path.join(userDataPath, 'chromium', 'chrome-mac')
+          executableName = 'chrome'
+          break
+        default: // linux
+          chromiumDir = path.join(userDataPath, 'chromium', 'chrome-linux')
+          executableName = 'chrome'
       }
 
-      const executableName = platform === 'win32' ? 'chrome.exe' : 'chrome'
       return path.join(chromiumDir, executableName)
     } catch (error) {
       logger.warn('无法获取 Chromium 路径，使用默认配置', error)
@@ -88,47 +89,25 @@ export class BrowserService {
     }
   }
 
-  /**
-   * 优化页面性能
-   * @param page {Page}
-   * @returns {Promise<void>}
-   * @description 通过禁用不必要的功能和资源拦截来优化页面加载性能
-   * @throws {Error} 如果设置页面性能优化失败
-   * @example
-   * await browserService.optimizePagePerformance(page);
-   * @memberof BrowserService
-   */
   private async optimizePagePerformance(page: Page): Promise<void> {
     try {
-      // 禁用不必要的功能以提高性能
+      // 禁用动画和自动播放
       await page.addInitScript(() => {
-        // 禁用动画
         Object.defineProperty(window, 'requestAnimationFrame', {
           value: (callback: FrameRequestCallback) => setTimeout(callback, 16)
         })
 
-        // 禁用自动播放
         Object.defineProperty(HTMLMediaElement.prototype, 'autoplay', {
           set: () => {}
         })
       })
 
-      // 设置请求拦截，只允许必要的资源
-      await page.route('**/*', (route) => {
-        const request = route.request()
-        const url = request.url()
-        // const resourceType = request.resourceType()
+      // 优化资源拦截逻辑
+      const blockedDomains = ['google-analytics', 'googletagmanager', 'facebook.com', 'doubleclick']
 
-        // 阻止广告、追踪和分析脚本
-        if (
-          url.includes('google-analytics') ||
-          url.includes('googletagmanager') ||
-          url.includes('facebook.com') ||
-          url.includes('doubleclick')
-          // resourceType === 'image' ||
-          // resourceType === 'font' ||
-          // resourceType === 'media'
-        ) {
+      await page.route('**/*', (route) => {
+        const url = route.request().url()
+        if (blockedDomains.some((domain) => url.includes(domain))) {
           route.abort()
         } else {
           route.continue()
@@ -139,64 +118,63 @@ export class BrowserService {
     }
   }
 
-  /**
-   * 初始化浏览器
-   * @returns {Promise<void>}
-   * @description 创建浏览器实例，设置上下文和页面
-   * @throws {Error} 如果浏览器已存在或初始化失败
-   */
+  private async closePageAndContext(): Promise<void> {
+    if (this.page) {
+      try {
+        await this.page.close()
+        logger.info('页面已关闭')
+      } catch (error) {
+        logger.warn('关闭页面失败:', error)
+      } finally {
+        this.page = null
+      }
+    }
+
+    if (this.context) {
+      try {
+        await this.context.close()
+        logger.info('浏览器上下文已关闭')
+      } catch (error) {
+        logger.warn('关闭上下文失败:', error)
+      } finally {
+        this.context = null
+      }
+    }
+  }
+
   async initBrowser(): Promise<Page> {
     try {
-      //
-      if (!this.browser) {
-        const launchOptions = {
-          headless: false, // 在生产环境中建议设置为 true
-          executablePath: this.executablePath, // 使用指定的 Chromium 路径
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
-            '--disable-blink-features=AutomationControlled',
-            '--no-first-run',
-            '--no-default-browser-check',
-            '--disable-extensions',
-            '--disable-plugins',
-            '--disable-default-apps'
-          ],
+      await this.closePageAndContext()
+
+      // 创建浏览器实例（如果不存在）
+      if (!this.browser || !this.browser.isConnected()) {
+        this.browser = await chromium.launch({
+          headless: this.config.headless,
+          executablePath: this.executablePath,
+          args: BrowserService.LAUNCH_ARGS,
           timeout: 30_000
-        }
-
-        this.browser = await chromium.launch(launchOptions)
-        logger.log('Chromium 浏览器启动成功')
-      }
-
-      if (!this.context) {
-        this.context = await this.browser.newContext({
-          viewport: { width: 1920, height: 1080 },
-          userAgent:
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-          extraHTTPHeaders: {
-            'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            Accept:
-              'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
-          },
-          ignoreHTTPSErrors: true,
-          javaScriptEnabled: true
         })
+        logger.info('Chromium 浏览器启动成功')
       }
 
-      if (!this.page) {
-        this.page = await this.context.newPage()
+      // 创建新上下文
+      this.context = await this.browser.newContext({
+        viewport: this.config.viewport,
+        userAgent: this.config.userAgent,
+        extraHTTPHeaders: {
+          'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+          'Accept-Encoding': 'gzip, deflate, br',
+          Accept:
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
+        },
+        ignoreHTTPSErrors: true,
+        javaScriptEnabled: true
+      })
 
-        await this.optimizePagePerformance(this.page)
-        logger.log('页面创建成功')
-      }
+      // 创建新页面
+      this.page = await this.context.newPage()
+      await this.optimizePagePerformance(this.page)
+      logger.info('页面创建成功')
 
       return this.page
     } catch (error) {
@@ -205,104 +183,103 @@ export class BrowserService {
     }
   }
 
-  /**
-   * 关闭浏览器
-   * @returns {Promise<void>}
-   * @description 关闭浏览器实例，释放资源
-   * @throws {Error} 如果浏览器未初始化或关闭失败
-   */
   async closeBrowser(): Promise<void> {
-    //
     try {
-      if (this.page) {
-        await this.page.close()
-        this.page = null
-        logger.log('页面已关闭')
-      }
+      await this.closePageAndContext()
 
-      if (this.context) {
-        await this.context.close()
-        this.context = null
-        logger.log('浏览器上下文已关闭')
-      }
-
-      if (this.browser) {
+      if (this.browser?.isConnected()) {
         await this.browser.close()
         this.browser = null
-        logger.log('浏览器已关闭')
+        logger.info('浏览器已关闭')
       }
     } catch (error) {
       logger.error('关闭浏览器失败:', error)
     }
   }
 
-  /**
-   * 检查浏览器健康状态
-   * @returns {Promise<boolean>}
-   * @description 检查浏览器的健康状态，确保浏览器和页面仍然可用
-   * @throws {Error} 如果浏览器健康检查失败
-   * @return {Promise<boolean>} 返回 true 表示浏览器健康，false 表示浏览器不可用
-   * @example
-   * const isHealthy = await browserService.checkBrowserHealth();
-   * if (!isHealthy) {
-   *   console.error('浏览器不健康');
-   * }
-   */
   async checkBrowserHealth(): Promise<boolean> {
     try {
-      if (!this.browser || !this.context || !this.page) {
-        return false
-      }
+      if (!this.browser?.isConnected()) return false
+      if (!this.context || !this.page) return false
 
-      // 检查浏览器是否仍然连接
-      const isConnected = this.browser.isConnected()
-      if (!isConnected) {
-        console.log('浏览器连接已断开')
-        return false
-      }
-
-      // 检查页面是否响应
-      await this.page.evaluate('() => document.readyState')
+      // 检查页面响应性
+      await this.page.evaluate('() => true')
       return true
     } catch (error) {
-      console.error('浏览器健康检查失败:', error)
+      logger.error('浏览器健康检查失败:', error)
       return false
     }
   }
 
-  /**
-   * 重置浏览器会话
-   * @returns {Promise<void>}
-   * @description 关闭当前浏览器实例并重新初始化
-   * @throws {Error} 如果重置浏览器会话失败
-   * @return {Promise<void>} 返回一个 Promise，表示重置操作完成
-   * @example
-   * await browserService.resetBrowserSession();
-   * console.log('浏览器会话已重置');
-   */
   async resetBrowserSession(): Promise<void> {
-    console.log('重置浏览器会话...')
+    logger.info('重置浏览器会话...')
     await this.closeBrowser()
     await this.initBrowser()
   }
 
-  /**
-   * 获取当前页面实例
-   * @returns {Page | null}
-   * @description 获取当前页面实例
-   * @return {Page | null} 返回当前页面实例，如果未创建则返回 null
-   * @example
-   * const page = browserService.getPage();
-   * if (page) {
-   *   console.log('当前页面已创建');
-   * } else {
-   *   console.log('当前页面未创建');
-   * }
-   * @throws {Error} 如果获取页面失败
-   * @memberof BrowserService
-   * @description 获取当前页面实例
-   */
-  getPage(): Page | null {
+  async navigateTo(
+    url: string,
+    options: {
+      waitUntil?: 'load' | 'domcontentloaded' | 'networkidle' | 'commit'
+      timeout?: number
+    } = {}
+  ): Promise<void> {
+    try {
+      const page = this.getPage()
+      const { waitUntil = 'domcontentloaded', timeout = 90000 } = options
+
+      logger.info(`导航到: ${url}`)
+      await page.goto(url, { waitUntil, timeout })
+      await this.waitForPageStability()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error(`导航到页面失败: ${message}`)
+      throw new Error(`导航失败: ${message}`)
+    }
+  }
+
+  async waitForPageStability(timeout = 30000): Promise<void> {
+    const page = this.getPage()
+    const startTime = Date.now()
+    let lastStableTime = 0
+    const STABILITY_THRESHOLD = 2000 // 2秒稳定期
+
+    while (Date.now() - startTime < timeout) {
+      const [isNetworkIdle, isDomStable] = await Promise.all([
+        page.evaluate(() => {
+          return performance
+            .getEntriesByType('resource')
+            .every((r) => (r as PerformanceResourceTiming).responseEnd < Date.now() - 1000)
+        }),
+        page.evaluate(() => {
+          return (
+            document.readyState === 'complete' &&
+            !document.querySelector('[aria-busy="true"], [data-loading="true"]')
+          )
+        })
+      ])
+
+      if (isNetworkIdle && isDomStable) {
+        if (lastStableTime === 0) {
+          lastStableTime = Date.now()
+        } else if (Date.now() - lastStableTime > STABILITY_THRESHOLD) {
+          logger.debug('页面已稳定')
+          return
+        }
+      } else {
+        lastStableTime = 0
+      }
+
+      await page.waitForTimeout(500)
+    }
+
+    logger.warn(`等待页面稳定超时 (${timeout}ms)`)
+  }
+
+  getPage(): Page {
+    if (!this.page) {
+      throw new Error('页面未初始化')
+    }
     return this.page
   }
 }

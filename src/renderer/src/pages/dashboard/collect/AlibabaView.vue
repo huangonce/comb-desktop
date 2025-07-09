@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { SupplierInfo } from 'src/shared/SupplierInfo'
+import { SupplierInfo } from '@shared/SupplierInfo'
 import { ref, onMounted, onUnmounted } from 'vue'
 
 const keyword = ref('')

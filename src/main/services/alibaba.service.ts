@@ -7,9 +7,9 @@ import { SupplierInfo } from '../../shared/SupplierInfo'
 
 export class AlibabaService {
   private browserService: BrowserService
+  private currentTask: Promise<SupplierInfo[]> | null = null
 
   constructor() {
-    // 在 Electron 应用中，Chromium 可执行文件路径
     this.browserService = new BrowserService()
   }
 
@@ -19,93 +19,91 @@ export class AlibabaService {
    * @returns 供应商信息列表
    */
   async searchSuppliers(keyword: string): Promise<SupplierInfo[]> {
+    if (this.currentTask) {
+      logger.warn('已有任务正在进行中，等待当前任务完成')
+      return this.currentTask
+    }
+
+    this.currentTask = this.performSearch(keyword)
+
+    try {
+      return await this.currentTask
+    } finally {
+      this.currentTask = null
+      // this.browserService.closeBrowser()
+    }
+  }
+
+  private async performSearch(keyword: string): Promise<SupplierInfo[]> {
     const maxRetries = 3
+    let attempt = 1 // 修复：改为可变变量
     let lastError: Error | null = null
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    while (attempt <= maxRetries) {
       try {
         logger.log(`开始第 ${attempt} 次搜索尝试，关键词: ${keyword}`)
+
         const page = await this.browserService.initBrowser()
-
-        const searchUrl = `https://www.alibaba.com/trade/search?spm=a2700.galleryofferlist.page-tab-top.2.533913a0tlCuJh&fsb=y&IndexArea=product_en&SearchText=${encodeURIComponent(keyword)}&tab=supplier`
-
+        const searchUrl = this.buildSearchUrl(keyword)
         logger.log('正在访问:', searchUrl)
 
-        // 访问供应商目录页面
-        await page.goto(searchUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 60000 // 增加超时时间
-        })
+        // 导航到目标页面
+        await this.browserService.navigateTo(searchUrl)
 
-        // 等待页面加载完成
-        await page.waitForTimeout(5_000)
-
-        // 检查是否有验证码或登录重定向
-        if (await this.hasCaptchaOrLoginRedirect(page)) {
-          logger.log('检测到验证码或登录重定向')
+        if (await this.hasCaptcha(page)) {
+          logger.log('验证码验证不通过，尝试重新加载页面')
           return []
         }
 
-        // 提取供应商信息
-        const suppliers = await this.extractSupplierInfo(page)
-        logger.log(`第 ${attempt} 次尝试成功，找到 ${suppliers.length} 个供应商`)
+        await page.waitForSelector('.factory-card', {
+          timeout: 10000,
+          state: 'visible'
+        })
+        logger.log('页面加载完成，开始提取供应商信息')
 
-        return suppliers
+        return await this.extractSupplierInfo(page)
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
-        logger.error(`第 ${attempt} 次搜索尝试失败:`, lastError.message)
+        logger.error(`第 ${attempt} 次搜索尝试失败: ${lastError.message}`)
 
         if (attempt < maxRetries) {
           const waitTime = attempt * 2000
-          logger.log(`等待 ${waitTime / 1000} 秒后重试...`)
+          logger.info(`等待 ${waitTime / 1000} 秒后重试...`)
           await new Promise((resolve) => setTimeout(resolve, waitTime))
-
-          // 重置浏览器会话
           await this.browserService.resetBrowserSession()
         }
+        attempt++ // 修复：递增重试计数器
       }
     }
 
     // 如果所有重试都失败
-    logger.log('所有搜索尝试都失败')
+    logger.log('所有搜索尝试都失败', lastError)
     return []
   }
 
-  /**
-   * 提取供应商信息
-   */
+  private buildSearchUrl(keyword: string): string {
+    const encodedKeyword = encodeURIComponent(keyword)
+    return `https://www.alibaba.com/trade/search?spm=a2700.galleryofferlist.page-tab-top.2.533913a0tlCuJh&fsb=y&IndexArea=product_en&SearchText=${encodedKeyword}&tab=supplier`
+  }
+
   private async extractSupplierInfo(page: Page): Promise<SupplierInfo[]> {
     const suppliers: SupplierInfo[] = []
     const startTime = Date.now()
 
     try {
-      // 检查浏览器健康状态
-      const isHealthy = await this.browserService.checkBrowserHealth()
-      if (!isHealthy) {
-        logger.log('浏览器状态不健康，重置会话')
+      if (!(await this.browserService.checkBrowserHealth())) {
+        logger.warn('浏览器状态不健康，重置会话')
         await this.browserService.resetBrowserSession()
-        throw new Error('浏览器会话已重置，需要重试')
+        throw new Error('浏览器会话已重置')
       }
 
-      // 多种可能的供应商卡片选择器，基于实际页面分析
-      const cardSelectors = ['[class="factory-card"]']
-      const supplierCards: Locator[] = await this.checkSupplierResults(page, cardSelectors)
-
-      // 限制处理的供应商数量，避免超时
+      const cardSelectors = ['.factory-card']
+      const supplierCards = await this.checkSupplierResults(page, cardSelectors)
 
       logger.log(`开始处理 ${supplierCards.length} 个供应商`)
       for (let i = 0; i < supplierCards.length; i++) {
         try {
           const card = supplierCards[i]
-
-          // // 检查处理时间，避免超时
-          // const currentTime = Date.now()
-          // if (currentTime - startTime > 45000) {
-          //   logger.log('处理时间超过45秒，停止处理')
-          //   break
-          // }
-
-          // 提取基本信息 - 使用安全的提取方法
           const companyName = await this.extractTextSafe(card, [
             '.card-title .detail-info h3 a' // 常见的标题标签
           ])
@@ -115,51 +113,7 @@ export class AlibabaService {
             'href'
           )
 
-          // if (!companyName) {
-          //   logger.log(`第 ${i + 1} 个供应商没有公司名称，跳过`)
-          //   continue // 如果没有公司名称，跳过
-          // }
-
-          // const location = await this.extractTextSafe(card, [
-          //   '.company-location',
-          //   '.location',
-          //   '[class*="location"]',
-          //   '[class*="address"]',
-          //   '.address',
-          //   '.country',
-          //   '.region'
-          // ])
-
-          // const website = await this.extractAttributeSafe(
-          //   card,
-          //   ['a[href*="alibaba.com"]', 'a[href]', '[href*="alibaba.com"]'],
-          //   'href'
-          // )
-
-          // const yearText = await this.extractTextSafe(card, [
-          //   '[class*="year"]',
-          //   '[class*="establish"]',
-          //   '.company-year',
-          //   '.founded',
-          //   '.since'
-          // ])
-
-          // const contactInfo = await this.extractTextSafe(card, [
-          //   '.contact',
-          //   '[class*="contact"]',
-          //   '.phone',
-          //   '.email',
-          //   '.tel',
-          //   '.mobile'
-          // ])
-
-          // // 解析位置信息
-          // const { country, province, city, district } = this.parseLocation(location)
-
-          // // 解析年份
-          // const establishedYear = this.parseYear(yearText)
-
-          const supplier: SupplierInfo = {
+          suppliers.push({
             id: i + 1,
             chineseName: '',
             englishName: companyName, // 阿里巴巴国际站主要显示英文名
@@ -173,74 +127,43 @@ export class AlibabaService {
             address: '',
             website: '',
             establishedYear: '',
-            // phone: this.extractPhone(contactInfo),
-            // email: this.extractEmail(contactInfo),
-            // country: country || '中国',
-            // province: province || '',
-            // city: city || '',
-            // district: district || '',
-            // address: location || '',
-            // website: website || '',
-            // establishedYear: establishedYear || '',
             creditCode: ''
-          }
-
-          suppliers.push(supplier)
+          })
           logger.log(`成功处理第 ${i + 1} 个供应商: ${companyName}`)
         } catch (error) {
-          logger.error(`处理第 ${i + 1} 个供应商时出错:`, error)
-          continue
+          logger.warn(
+            `处理第 ${i + 1} 个供应商时出错: ${error instanceof Error ? error.message : String(error)}`
+          )
         }
       }
 
-      const processingTime = Date.now() - startTime
-      logger.log(
-        `供应商信息提取完成，用时 ${processingTime}ms，成功提取 ${suppliers.length} 个供应商`
-      )
-
-      // 如果没有提取到供应商
-      if (suppliers.length === 0) {
-        logger.log('未找到有效的供应商信息')
-        return []
-      }
-
+      const duration = Date.now() - startTime
+      logger.info(`提取完成，用时 ${duration}ms，成功 ${suppliers.length} 个供应商`)
       return suppliers
     } catch (error) {
-      logger.error('提取供应商信息时出错:', error)
-
-      // 如果提取失败但已有部分数据，返回已有数据
-      if (suppliers.length > 0) {
-        logger.log(`提取过程中出错，但已获得 ${suppliers.length} 个供应商数据`)
-        return suppliers
-      }
-
-      // 完全失败时返回空数组
-      return []
+      logger.error(`提取供应商信息失败: ${error instanceof Error ? error.message : String(error)}`)
+      return suppliers.length > 0 ? suppliers : []
     }
   }
 
-  /**
-   * 规范化 URL
-   */
-  private normalizeUrl(url: string): string {
+  private normalizeUrl(url: string, baseUrl = 'https://www.alibaba.com'): string {
     if (!url) return ''
 
     try {
-      // 如果URL不包含协议，添加https
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url
+      // 处理相对路径
+      if (url.startsWith('/')) {
+        return new URL(url, baseUrl).href
       }
 
-      const urlObj = new URL(url)
-      return urlObj.href
+      if (!/^https?:\/\//i.test(url)) {
+        url = 'https://' + url
+      }
+      return new URL(url).href
     } catch {
-      return url // 如果URL无效，返回原始字符串
+      return url
     }
   }
 
-  /**
-   * 安全的文本提取，带超时控制
-   */
   private async extractTextSafe(
     element: Locator,
     selectors: string[],
@@ -248,21 +171,15 @@ export class AlibabaService {
   ): Promise<string> {
     for (const selector of selectors) {
       try {
-        const textElement = element.locator(selector).first()
-        const text = await textElement.textContent({ timeout })
-        if (text && text.trim()) {
-          return text.trim()
-        }
+        const text = await element.locator(selector).first().textContent({ timeout })
+        if (text?.trim()) return text.trim()
       } catch {
-        continue
+        /* 忽略错误继续尝试下一个选择器 */
       }
     }
     return ''
   }
 
-  /**
-   * 安全的属性提取，带超时控制
-   */
   private async extractAttributeSafe(
     element: Locator,
     selectors: string[],
@@ -271,136 +188,176 @@ export class AlibabaService {
   ): Promise<string> {
     for (const selector of selectors) {
       try {
-        const attrElement = element.locator(selector).first()
-        const value = await attrElement.getAttribute(attribute, { timeout })
-        if (value && value.trim()) {
-          return this.normalizeUrl(value.trim())
-        }
+        const value = await element.locator(selector).first().getAttribute(attribute, { timeout })
+        if (value?.trim()) return this.normalizeUrl(value.trim())
       } catch {
-        continue
+        /* 忽略错误继续尝试下一个选择器 */
       }
     }
     return ''
   }
 
   /**
-   * 解析位置信息
+   * 检查是否有验证码
    */
-  private parseLocation(location: string): {
-    country: string
-    province: string
-    city: string
-    district: string
-  } {
-    if (!location) {
-      return { country: '', province: '', city: '', district: '' }
-    }
-
-    // 简单的位置解析逻辑
-    const parts = location.split(/[,，\s]+/).filter((part) => part.trim())
-
-    let country = ''
-    let province = ''
-    let city = ''
-    let district = ''
-
-    if (parts.length >= 1) {
-      country = parts[0].includes('China') || parts[0].includes('中国') ? '中国' : parts[0]
-    }
-    if (parts.length >= 2) {
-      province = parts[1]
-    }
-    if (parts.length >= 3) {
-      city = parts[2]
-    }
-    if (parts.length >= 4) {
-      district = parts[3]
-    }
-
-    return { country, province, city, district }
-  }
-
-  /**
-   * 解析年份
-   */
-  private parseYear(yearText: string): string {
-    if (!yearText) return ''
-
-    const yearMatch = yearText.match(/(\d{4})/)
-    return yearMatch ? yearMatch[1] : ''
-  }
-
-  /**
-   * 提取电话号码
-   */
-  private extractPhone(text: string): string {
-    if (!text) return ''
-
-    const phoneMatch = text.match(/(\+?\d{1,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4})/g)
-    return phoneMatch ? phoneMatch[0] : ''
-  }
-
-  /**
-   * 提取邮箱地址
-   */
-  private extractEmail(text: string): string {
-    if (!text) return ''
-
-    const emailMatch = text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g)
-    return emailMatch ? emailMatch[0] : ''
-  }
-
-  /**
-   * 检查是否有验证码或登录重定向
-   */
-  private async hasCaptchaOrLoginRedirect(page: Page): Promise<boolean> {
+  private async hasCaptcha(page: Page): Promise<boolean> {
     try {
-      // 检查验证码
+      // 优化：合并选择器减少DOM查询
       const captchaSelectors = [
         'iframe[src*="captcha"]',
         '.nc_wrapper',
         '[class*="captcha"]',
         '[class*="verify"]',
         '[class*="security"]'
-      ]
+      ].join(', ')
 
-      for (const selector of captchaSelectors) {
-        if ((await page.locator(selector).count()) > 0) {
-          logger.log('检测到验证码元素:', selector)
-          return true
-        }
+      const captchaCount = await page.locator(captchaSelectors).count()
+      if (captchaCount === 0) {
+        return false
       }
 
-      // 检查是否被重定向到登录页面
-      const currentUrl = page.url()
-      if (currentUrl.includes('login') || currentUrl.includes('signin')) {
-        logger.log('检测到登录重定向:', currentUrl)
-        return true
+      const slideCaptchaHandled = await this.handleSlideCaptcha(page)
+      if (slideCaptchaHandled) {
+        logger.info('滑动验证码处理成功')
+        return false
       }
 
-      return false
+      return true
     } catch (error) {
-      logger.warn('验证码检查失败:', error)
+      logger.warn(`验证码检查失败: ${error instanceof Error ? error.message : String(error)}`)
       return false
     }
   }
 
-  private async checkSupplierResults(page: Page, cardSelectors: string[]): Promise<Locator[]> {
-    let supplierCards: Locator[] = []
+  private async handleSlideCaptcha(page: Page): Promise<boolean> {
+    const maxRetries = 100 // 最大重试次数
+    let retryCount = 0
 
-    for (const selector of cardSelectors) {
+    while (retryCount < maxRetries) {
+      const sliderSelector = '#nc_1_n1z' // 滑块选择器
+      const slider = page.locator(sliderSelector)
+
+      if ((await slider.count()) === 0) {
+        return false
+      }
+
+      logger.info(`检测到滑动验证码，尝试第 ${retryCount + 1}/${maxRetries} 次处理...`)
+
       try {
-        supplierCards = await page.locator(selector).all()
-        if (supplierCards.length > 0) {
-          logger.log(`使用选择器 ${selector} 找到 ${supplierCards.length} 个供应商卡片`)
-          break
+        // 获取滑块位置信息
+        const sliderBox = await slider.boundingBox()
+        if (!sliderBox) {
+          logger.warn('无法获取滑块位置信息')
+          return false
         }
+
+        const startX = sliderBox.x + sliderBox.width / 2
+        const startY = sliderBox.y + sliderBox.height / 2
+        const targetX = startX + 300 // 滑动距离
+
+        // 模拟鼠标操作
+        await page.mouse.move(startX, startY)
+        await page.mouse.down()
+
+        // 每次重试使用不同的滑动速度
+        const speedFactor = 1.0 + retryCount * 0.2 // 随重试次数增加速度
+        const baseSteps = 15 // 基础步数
+        const steps = Math.max(5, Math.floor(baseSteps / speedFactor)) // 根据速度因子调整步
+
+        const stepSize = (targetX - startX) / steps
+        const minWait = Math.max(10, 30 - retryCount * 2) // 最小等待时间
+        const maxWait = Math.max(20, 50 - retryCount * 3) // 最大等待时间
+
+        for (let i = 0; i < steps; i++) {
+          // 添加随机偏移模拟人手抖动
+          const jitterX = Math.random() * 3 - 1.5
+          const jitterY = Math.random() * 3 - 1.5
+
+          const currentX = startX + (i + 1) * stepSize
+          await page.mouse.move(currentX + jitterX, startY + jitterY, { steps: 1 })
+
+          // 根据速度因子调整等待时间
+          const waitTime = minWait + Math.random() * (maxWait - minWait)
+          await page.waitForTimeout(waitTime)
+        }
+
+        await page.mouse.up()
+        logger.info('快速滑动模拟完成')
+
+        // 等待验证结果
+        await page.waitForTimeout(1000)
+
+        // 检查验证是否成功 - 使用更可靠的检测方法
+        const successIndicator = await page.locator('#nc_1_wrapper').getAttribute('class')
+        if (successIndicator && successIndicator.includes('success')) {
+          logger.info('滑动验证成功')
+          return true
+        }
+
+        // 检查是否有刷新按钮
+        const refreshButton = page.locator('#nc_1_refresh')
+        if ((await refreshButton.count()) > 0) {
+          logger.warn('验证失败，点击刷新按钮重试...')
+          await refreshButton.click()
+
+          // 等待刷新动画完成
+          await page.waitForTimeout(2000 + Math.random() * 1000)
+
+          // 检查滑块是否重新出现
+          if ((await slider.count()) === 0) {
+            logger.info('刷新后滑块消失，可能验证成功')
+            return true
+          }
+
+          retryCount++
+          continue // 重试
+        }
+
+        // 检查是否有nocaptcha按钮
+        const noCaptchaButton = page.locator('#nc_1_nocaptcha')
+        if ((await noCaptchaButton.count()) > 0) {
+          logger.warn('检测到nocaptcha按钮，尝试点击...')
+          await noCaptchaButton.click()
+          await page.waitForTimeout(3000)
+
+          // 检查滑块是否重新出现
+          if ((await slider.count()) > 0) {
+            logger.info('nocaptcha点击后滑块仍在，继续尝试')
+            retryCount++
+            continue
+          }
+
+          logger.info('nocaptcha点击后滑块消失，可能验证成功')
+          return true
+        }
+
+        // 如果没有刷新按钮，直接重试
+        retryCount++
+        logger.warn('验证失败，准备重试...')
+        await page.waitForTimeout(2000 + Math.random() * 1000)
       } catch (error) {
-        logger.warn('检查供应商卡片时出错:', error)
-        continue
+        logger.error(`滑动验证处理失败: ${error instanceof Error ? error.message : String(error)}`)
+        retryCount++
+        await page.waitForTimeout(3000) // 错误后等待更长时间
       }
     }
 
-    return supplierCards
+    logger.warn(`滑动验证失败，已达最大重试次数 (${maxRetries}次)`)
+    return false
+  }
+
+  private async checkSupplierResults(page: Page, cardSelectors: string[]): Promise<Locator[]> {
+    for (const selector of cardSelectors) {
+      const cards = page.locator(selector)
+      const count = await cards.count()
+
+      if (count > 0) {
+        logger.info(`找到 ${count} 个供应商卡片 (${selector})`)
+        return await cards.all()
+      }
+    }
+
+    logger.warn('未找到供应商卡片')
+    return []
   }
 }
