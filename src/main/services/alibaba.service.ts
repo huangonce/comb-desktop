@@ -21,6 +21,7 @@ export class AlibabaService {
   private static readonly CAPTCHA_WRAPPER_SELECTOR = '#nc_1_wrapper'
   private static readonly CAPTCHA_REFRESH_SELECTOR = '#nc_1_refresh'
   private static readonly CAPTCHA_NOCAPTCHA_SELECTOR = '#nc_1_nocaptcha'
+  private static readonly NO_MORE_RESULTS_SELECTOR = '#sse-less-result'
 
   constructor() {
     this.browserService = new BrowserService()
@@ -42,6 +43,7 @@ export class AlibabaService {
       return await this.activeSearchTask
     } finally {
       this.activeSearchTask = null
+      this.browserService.terminateBrowser()
     }
   }
 
@@ -52,32 +54,55 @@ export class AlibabaService {
   private async executeSupplierSearch(keyword: string): Promise<SupplierInfo[]> {
     const MAX_RETRIES = 3
     const RETRY_DELAY_BASE = 2000
+    const allSuppliers: SupplierInfo[] = []
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         logger.info(`开始搜索供应商 (尝试 ${attempt}/${MAX_RETRIES}): ${keyword}`)
 
         const page = await this.browserService.launchBrowser()
-        const searchUrl = this.buildSearchUrl(keyword)
+        let pageNumber = 1
+        let hasMoreResults = true
 
-        await this.browserService.navigateToUrl(searchUrl)
+        while (hasMoreResults) {
+          logger.info(`正在采集第 ${pageNumber} 页供应商`)
+          const searchUrl = this.buildSearchUrl(keyword, pageNumber)
 
-        // 处理验证码
-        const captchaPresent = await this.handleCaptchaIfPresent(page)
-        if (captchaPresent) {
-          logger.warn('验证码处理失败，跳过本次尝试')
-          throw new Error('验证码处理失败')
+          await this.browserService.navigateToUrl(searchUrl)
+
+          // 处理验证码
+          const captchaPresent = await this.handleCaptchaIfPresent(page)
+          if (captchaPresent) {
+            // logger.warn('验证码处理失败，跳过本次尝试')
+            // throw new Error('验证码处理失败')
+            logger.warn('验证码处理失败，跳过当前页')
+            // 跳过当前页继续下一页
+            pageNumber++
+            continue
+          }
+
+          // 检查是否还有更多结果
+          if (await this.hasNoMoreResults(page)) {
+            logger.info(`第 ${pageNumber} 页无更多结果，停止采集`)
+            hasMoreResults = false
+            break
+          }
+
+          // 等待供应商卡片加载
+          await this.waitForSupplierCards(page)
+
+          // 提取当前页供应商
+          const pageSuppliers = await this.extractSuppliersFromPage(page, pageNumber)
+          allSuppliers.push(...pageSuppliers)
+
+          logger.info(`第 ${pageNumber} 页采集完成: 找到 ${pageSuppliers.length} 个供应商`)
+          pageNumber++
         }
 
-        // 等待供应商卡片加载
-        await page.waitForSelector(AlibabaService.SUPPLIER_CARD_SELECTOR, {
-          timeout: 10_000,
-          state: 'visible'
-        })
-
-        return await this.extractSuppliersFromPage(page)
+        logger.info(`供应商采集完成: 共找到 ${allSuppliers.length} 个供应商`)
+        return allSuppliers
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = this.getErrorMessage(error)
         logger.error(`供应商搜索失败 (尝试 ${attempt}): ${errorMessage}`)
 
         if (attempt < MAX_RETRIES) {
@@ -97,18 +122,53 @@ export class AlibabaService {
    * 构建搜索URL
    * @param keyword 搜索关键词
    */
-  private buildSearchUrl(keyword: string): string {
+  private buildSearchUrl(keyword: string, pageNumber: number): string {
     const encodedKeyword = encodeURIComponent(keyword)
 
-    return `https://www.alibaba.com/trade/search?fsb=y&IndexArea=product_en&keywords=${encodedKeyword}&originKeywords=${encodedKeyword}&tab=supplier&&page=1`
+    return `https://www.alibaba.com/trade/search?fsb=y&IndexArea=product_en&keywords=${encodedKeyword}&originKeywords=${encodedKeyword}&tab=supplier&&page=${pageNumber}`
+  }
+
+  /**
+   * 检查是否还有更多结果
+   * @param page 页面实例
+   */
+  private async hasNoMoreResults(page: Page): Promise<boolean> {
+    try {
+      const noMoreElement = page.locator(AlibabaService.NO_MORE_RESULTS_SELECTOR)
+      return await noMoreElement.isVisible({ timeout: 3000 })
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * dddd
+   * 等待供应商卡片加载
+   * @param page 页面实例
+   */
+  private async waitForSupplierCards(page: Page): Promise<boolean> {
+    try {
+      await page.waitForSelector(AlibabaService.SUPPLIER_CARD_SELECTOR, {
+        timeout: 10_000,
+        state: 'attached'
+      })
+      return true
+    } catch (error) {
+      // 检查是否显示无结果
+      if (await this.hasNoMoreResults(page)) {
+        logger.info('无供应商结果')
+        return false
+      }
+      logger.warn(`供应商卡片加载超时: ${this.getErrorMessage(error)}`)
+      return false
+    }
   }
 
   /**
    * 从页面提取供应商信息
    * @param page 页面实例
    */
-  private async extractSuppliersFromPage(page: Page): Promise<SupplierInfo[]> {
-    const suppliers: SupplierInfo[] = []
+  private async extractSuppliersFromPage(page: Page, pageNumber: number): Promise<SupplierInfo[]> {
     const startTime = performance.now()
 
     try {
@@ -121,16 +181,21 @@ export class AlibabaService {
 
       // 定位供应商卡片
       const supplierCards = await this.locateSupplierCards(page)
+      if (supplierCards.length === 0) {
+        return []
+      }
+
       logger.info(`找到 ${supplierCards.length} 个供应商卡片`)
 
       // 并行处理供应商信息提取
       const extractionPromises = supplierCards.map((card, index) =>
-        this.processSupplierCard(card, index + 1)
+        this.processSupplierCard(card, (pageNumber - 1) * 10 + index + 1)
       )
 
       const results = await Promise.allSettled(extractionPromises)
 
       // 收集成功提取的供应商
+      const suppliers: SupplierInfo[] = []
       for (const result of results) {
         if (result.status === 'fulfilled' && result.value) {
           suppliers.push(result.value)
@@ -143,8 +208,8 @@ export class AlibabaService {
       )
       return suppliers
     } catch (error) {
-      logger.error(`供应商提取失败: ${error instanceof Error ? error.message : String(error)}`)
-      return suppliers
+      logger.error(`供应商提取失败: ${this.getErrorMessage(error)}`)
+      return []
     }
   }
 
@@ -155,15 +220,18 @@ export class AlibabaService {
    */
   private async processSupplierCard(card: Locator, index: number): Promise<SupplierInfo | null> {
     try {
-      const companyName = await this.extractTextWithFallback(card, [
-        AlibabaService.COMPANY_NAME_SELECTOR
-      ])
+      // 使用更高效的选择器组合
+      const companyName = await card
+        .locator(AlibabaService.COMPANY_NAME_SELECTOR)
+        .first()
+        .textContent({ timeout: 1500 })
+        .then((t) => t?.trim() || '')
 
-      const companyURL = await this.extractAttributeWithFallback(
-        card,
-        [AlibabaService.COMPANY_NAME_SELECTOR],
-        'href'
-      )
+      const companyURL = await card
+        .locator(AlibabaService.COMPANY_NAME_SELECTOR)
+        .first()
+        .getAttribute('href', { timeout: 1500 })
+        .then((url) => this.normalizeUrl(url?.trim() || ''))
 
       if (!companyName) {
         logger.warn(`供应商 ${index} 名称提取失败`)
@@ -189,8 +257,7 @@ export class AlibabaService {
         creditCode: ''
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      logger.warn(`处理供应商 ${index} 失败: ${errorMessage}`)
+      logger.warn(`处理供应商 ${index} 失败: ${this.getErrorMessage(error)}`)
       return null
     }
   }
@@ -200,15 +267,13 @@ export class AlibabaService {
    * @param page 页面实例
    */
   private async locateSupplierCards(page: Page): Promise<Locator[]> {
-    const cards = page.locator(AlibabaService.SUPPLIER_CARD_SELECTOR)
-    const count = await cards.count()
-
-    if (count === 0) {
-      logger.warn('未找到供应商卡片')
+    try {
+      const cards = page.locator(AlibabaService.SUPPLIER_CARD_SELECTOR)
+      const count = await cards.count()
+      return count > 0 ? await cards.all() : []
+    } catch {
       return []
     }
-
-    return cards.all()
   }
 
   /**
@@ -228,7 +293,7 @@ export class AlibabaService {
       logger.info('检测到验证码，尝试处理...')
       return !(await this.solveSliderCaptcha(page))
     } catch (error) {
-      logger.warn(`验证码处理失败: ${error instanceof Error ? error.message : String(error)}`)
+      logger.warn(`验证码处理失败: ${this.getErrorMessage(error)}`)
       return true
     }
   }
@@ -238,9 +303,8 @@ export class AlibabaService {
    * @param page 页面实例
    */
   private async solveSliderCaptcha(page: Page): Promise<boolean> {
-    const MAX_ATTEMPTS = 5
+    const MAX_ATTEMPTS = 3
     const SLIDER_DISTANCE = 300
-    const SLIDE_DURATION = 1000
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
@@ -248,35 +312,33 @@ export class AlibabaService {
 
         const slider = page.locator(AlibabaService.SLIDER_SELECTOR)
         if ((await slider.count()) === 0) {
-          logger.info('未找到滑块，验证码可能已消失')
           return true
         }
 
         const sliderBox = await slider.boundingBox()
         if (!sliderBox) {
-          logger.warn('无法获取滑块位置')
-          return false
+          continue
         }
 
         const startX = sliderBox.x + sliderBox.width / 2
         const startY = sliderBox.y + sliderBox.height / 2
 
-        await page.mouse.move(startX, startY)
+        await page.mouse.move(startX, startY, { steps: 2 })
         await page.mouse.down()
 
-        // 模拟人类滑动行为
-        await this.simulateHumanSlide(page, startX, startY, SLIDER_DISTANCE, SLIDE_DURATION)
+        // 模拟人类滑动行为（优化版）
+        await this.optimizedHumanSlide(page, startX, startY, SLIDER_DISTANCE)
 
         await page.mouse.up()
-        logger.debug('滑动操作完成')
 
         // 等待验证结果
-        await page.waitForTimeout(1000)
+        await page.waitForTimeout(800)
 
         // 检查验证是否成功
         const wrapperClass = await page
           .locator(AlibabaService.CAPTCHA_WRAPPER_SELECTOR)
-          .getAttribute('class')
+          .getAttribute('class', { timeout: 1000 })
+
         if (wrapperClass?.includes('success')) {
           logger.info('滑动验证成功')
           return true
@@ -286,13 +348,8 @@ export class AlibabaService {
         if (await this.refreshCaptcha(page)) {
           continue
         }
-
-        // 尝试其他验证方式
-        if (await this.tryAlternativeCaptchaSolutions(page)) {
-          return true
-        }
       } catch (error) {
-        logger.error(`滑动验证失败: ${error instanceof Error ? error.message : String(error)}`)
+        logger.error(`滑动验证失败: ${this.getErrorMessage(error)}`)
       }
     }
 
@@ -301,36 +358,28 @@ export class AlibabaService {
   }
 
   /**
-   * 模拟人类滑动行为
+   * 优化的人类滑动行为模拟
    * @param page 页面实例
    * @param startX 起始X坐标
    * @param startY 起始Y坐标
    * @param distance 滑动距离
-   * @param duration 滑动持续时间
    */
-  private async simulateHumanSlide(
+  private async optimizedHumanSlide(
     page: Page,
     startX: number,
     startY: number,
-    distance: number,
-    duration: number
+    distance: number
   ): Promise<void> {
-    const steps = 20
+    const steps = 15
     const stepSize = distance / steps
-    const stepDuration = duration / steps
 
     for (let i = 0; i < steps; i++) {
       const currentX = startX + (i + 1) * stepSize
-
-      // 添加随机偏移模拟人手抖动
-      const jitterX = (Math.random() - 0.5) * 5
-      const jitterY = (Math.random() - 0.5) * 3
+      const jitterX = (Math.random() - 0.5) * 3
+      const jitterY = (Math.random() - 0.5) * 2
 
       await page.mouse.move(currentX + jitterX, startY + jitterY, { steps: 1 })
-
-      // 随机等待时间
-      const waitTime = stepDuration * (0.8 + Math.random() * 0.4)
-      await page.waitForTimeout(waitTime)
+      await page.waitForTimeout(30 + Math.random() * 20)
     }
   }
 
@@ -339,93 +388,16 @@ export class AlibabaService {
    * @param page 页面实例
    */
   private async refreshCaptcha(page: Page): Promise<boolean> {
-    const refreshButton = page.locator(AlibabaService.CAPTCHA_REFRESH_SELECTOR)
-    if ((await refreshButton.count()) === 0) return false
-
     try {
-      logger.info('点击验证码刷新按钮')
+      const refreshButton = page.locator(AlibabaService.CAPTCHA_REFRESH_SELECTOR)
+      if ((await refreshButton.count()) === 0) return false
+
       await refreshButton.click()
-      await page.waitForTimeout(2000)
-      return true
-    } catch (error) {
-      logger.error(`滑动验证处理失败: ${error instanceof Error ? error.message : String(error)}`)
+      await page.waitForTimeout(1000)
+      return (await page.locator(AlibabaService.SLIDER_SELECTOR).count()) === 0
+    } catch {
       return false
     }
-  }
-
-  /**
-   * 尝试其他验证码解决方案
-   * @param page 页面实例
-   */
-  private async tryAlternativeCaptchaSolutions(page: Page): Promise<boolean> {
-    const nocaptchaButton = page.locator(AlibabaService.CAPTCHA_NOCAPTCHA_SELECTOR)
-    if ((await nocaptchaButton.count()) === 0) return false
-
-    try {
-      logger.info('尝试替代验证码解决方案')
-      await nocaptchaButton.click()
-      await page.waitForTimeout(3000)
-
-      // 检查验证是否成功
-      const slider = page.locator(AlibabaService.SLIDER_SELECTOR)
-      if ((await slider.count()) === 0) {
-        logger.info('替代解决方案成功')
-        return true
-      }
-    } catch (error) {
-      logger.error(`替代解决方案失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-
-    return false
-  }
-
-  /**
-   * 安全提取文本内容
-   * @param element 父元素
-   * @param selectors 选择器列表
-   * @param timeout 超时时间
-   */
-  private async extractTextWithFallback(
-    element: Locator,
-    selectors: string[],
-    timeout = 2000
-  ): Promise<string> {
-    for (const selector of selectors) {
-      try {
-        const textContent = await element.locator(selector).first().textContent({ timeout })
-        if (textContent?.trim()) return textContent.trim()
-      } catch {
-        // 忽略错误继续尝试下一个选择器
-      }
-    }
-    return ''
-  }
-
-  /**
-   * 安全提取元素属性
-   * @param element 父元素
-   * @param selectors 选择器列表
-   * @param attribute 属性名称
-   * @param timeout 超时时间
-   */
-  private async extractAttributeWithFallback(
-    element: Locator,
-    selectors: string[],
-    attribute: string,
-    timeout = 2000
-  ): Promise<string> {
-    for (const selector of selectors) {
-      try {
-        const attrValue = await element
-          .locator(selector)
-          .first()
-          .getAttribute(attribute, { timeout })
-        if (attrValue?.trim()) return this.normalizeUrl(attrValue.trim())
-      } catch {
-        // 忽略错误继续尝试下一个选择器
-      }
-    }
-    return ''
   }
 
   /**
@@ -433,23 +405,32 @@ export class AlibabaService {
    * @param url 原始URL
    * @param baseUrl 基础URL
    */
-  private normalizeUrl(url: string, baseUrl = 'https://www.alibaba.com'): string {
+  private normalizeUrl(url: string): string {
     if (!url) return ''
 
     try {
+      // 处理协议相对URL (//example.com)
+      if (url.startsWith('//')) {
+        return `https:${url}`
+      }
+
       // 处理相对路径
       if (url.startsWith('/')) {
-        return new URL(url, baseUrl).href
+        return `https://www.alibaba.com${url}`
       }
 
       // 处理缺少协议的URL
       if (!/^https?:\/\//i.test(url)) {
-        return 'https://' + url
+        return `https://${url}`
       }
 
-      return new URL(url).href
+      return url
     } catch {
       return url
     }
+  }
+
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error)
   }
 }
