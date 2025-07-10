@@ -60,7 +60,7 @@ export class BrowserService {
     this.config = {
       headless: !isDev, // 开发环境默认非无头模式
       userAgent: BrowserService.DEFAULT_USER_AGENT,
-      viewport: { width: 1280, height: 800 },
+      viewport: { width: 1920, height: 1080 },
       timeout: 60000,
       ...config
     }
@@ -278,7 +278,7 @@ export class BrowserService {
 
       logger.info(`导航至: ${url}`)
       await page.goto(url, { waitUntil, timeout })
-      await this.waitForStableState()
+      await this.optimizedWaitForStableState()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logger.error(`导航失败: ${message}`)
@@ -287,42 +287,55 @@ export class BrowserService {
   }
 
   /**
-   * 等待页面稳定状态
-   * @param timeout {number} 超时时间(毫秒)
+   * 高效等待页面稳定状态
+   * @param timeout 超时时间(毫秒) - 默认30秒
    */
-  async waitForStableState(timeout = 30_000): Promise<void> {
-    const STABILITY_THRESHOLD = 2000 // 2秒稳定期
-    const POLL_INTERVAL = 500 // 轮询间隔
+  async optimizedWaitForStableState(timeout: number = 30_000): Promise<void> {
+    const STABILITY_THRESHOLD = 1000
+    const POLL_INTERVAL = 300
+    const RESOURCE_QUIET_PERIOD = 800
 
     const page = this.getActivePage()
     const startTime = Date.now()
     let stableStart = 0
 
     while (Date.now() - startTime < timeout) {
-      const [networkIdle, domStable] = await Promise.all([
-        page.evaluate(() =>
-          performance
-            .getEntriesByType('resource')
-            .every((r) => (r as PerformanceResourceTiming).responseEnd < Date.now() - 1000)
-        ),
-        page.evaluate(
-          () =>
-            document.readyState === 'complete' &&
-            !document.querySelector('[aria-busy="true"], [data-loading="true"]')
-        )
-      ])
+      try {
+        const [networkIdle, domStable] = await Promise.all([
+          page.evaluate((quietPeriod: number) => {
+            const resources = performance.getEntriesByType(
+              'resource'
+            ) as PerformanceResourceTiming[]
+            return !resources.some((r) => r.responseEnd > performance.now() - quietPeriod)
+          }, RESOURCE_QUIET_PERIOD),
 
-      if (networkIdle && domStable) {
-        if (stableStart === 0) stableStart = Date.now()
-        else if (Date.now() - stableStart > STABILITY_THRESHOLD) {
-          logger.debug('页面已达稳定状态')
-          return
+          page.evaluate(() => {
+            if (document.readyState !== 'complete') return false
+            return !document.querySelector('[aria-busy="true"], [data-loading="true"]')
+          })
+        ])
+
+        if (networkIdle && domStable) {
+          const now = Date.now()
+          if (stableStart === 0) {
+            stableStart = now
+          } else if (now - stableStart > STABILITY_THRESHOLD) {
+            logger.debug('页面已达稳定状态')
+            return
+          }
+        } else {
+          stableStart = 0
         }
-      } else {
+      } catch (error) {
+        logger.warn(`稳定性检查异常: ${error instanceof Error ? error.message : String(error)}`)
         stableStart = 0
       }
 
-      await page.waitForTimeout(POLL_INTERVAL)
+      // 动态调整等待时间
+      const remaining = timeout - (Date.now() - startTime)
+      if (remaining <= 0) break
+
+      await page.waitForTimeout(Math.min(POLL_INTERVAL, remaining))
     }
 
     logger.warn(`页面稳定状态检测超时 (${timeout}ms)`)

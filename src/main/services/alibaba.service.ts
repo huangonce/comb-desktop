@@ -60,7 +60,6 @@ export class AlibabaService {
         const page = await this.browserService.launchBrowser()
         const searchUrl = this.buildSearchUrl(keyword)
 
-        logger.debug(`导航至搜索页面: ${searchUrl}`)
         await this.browserService.navigateToUrl(searchUrl)
 
         // 处理验证码
@@ -72,7 +71,7 @@ export class AlibabaService {
 
         // 等待供应商卡片加载
         await page.waitForSelector(AlibabaService.SUPPLIER_CARD_SELECTOR, {
-          timeout: 10000,
+          timeout: 10_000,
           state: 'visible'
         })
 
@@ -100,7 +99,8 @@ export class AlibabaService {
    */
   private buildSearchUrl(keyword: string): string {
     const encodedKeyword = encodeURIComponent(keyword)
-    return `https://www.alibaba.com/trade/search?spm=a2700.galleryofferlist.page-tab-top.2.533913a0tlCuJh&fsb=y&IndexArea=product_en&SearchText=${encodedKeyword}&tab=supplier`
+
+    return `https://www.alibaba.com/trade/search?fsb=y&IndexArea=product_en&keywords=${encodedKeyword}&originKeywords=${encodedKeyword}&tab=supplier&&page=1`
   }
 
   /**
