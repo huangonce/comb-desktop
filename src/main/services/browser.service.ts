@@ -278,7 +278,7 @@ export class BrowserService {
 
       logger.info(`导航至: ${url}`)
       await page.goto(url, { waitUntil, timeout })
-      await this.optimizedWaitForStableState()
+      // await this.optimizedWaitForStableState()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logger.error(`导航失败: ${message}`)
