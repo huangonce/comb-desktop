@@ -134,7 +134,7 @@ const handleSearchPageComplete = (data: {
   console.log('重复供应商数量:', data.suppliers.length - newSuppliers.length)
 
   // 将新的供应商数据添加到现有列表中
-  suppliers.value.push(...data.suppliers)
+  suppliers.value.push(...newSuppliers)
   currentPage.value = data.pageNumber
   totalFound.value = data.totalFound
   progressMessage.value = data.message

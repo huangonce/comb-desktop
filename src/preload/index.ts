@@ -101,11 +101,7 @@ const unifiedAPI = {
 
     // 移除事件监听
     removeAllListeners: () => {
-      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_PROGRESS)
-      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_PAGE_START)
-      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_PAGE_COMPLETE)
-      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_COMPLETE)
-      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_ERROR)
+      Object.values(ALIBABA_CHANNELS).forEach((channel) => ipcRenderer.removeAllListeners(channel))
     }
   }
 }
