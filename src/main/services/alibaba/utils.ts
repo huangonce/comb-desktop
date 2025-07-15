@@ -92,8 +92,14 @@ export const getErrorMessage = (error: unknown): string => {
  */
 export const hasNoMoreResults = async (activePage: Page): Promise<boolean> => {
   try {
-    const noMoreElement = activePage.locator('#sse-less-result')
-    return await noMoreElement.isVisible({ timeout: TIMEOUT })
+    // const noMoreElement = activePage.locator('#sse-less-result')
+    // return await noMoreElement.isVisible({ timeout: TIMEOUT })
+
+    await activePage.waitForSelector('#sse-less-result', {
+      timeout: 10_000,
+      state: 'attached'
+    })
+    return true
   } catch {
     return false
   }
