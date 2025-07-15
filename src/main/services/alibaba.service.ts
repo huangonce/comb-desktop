@@ -16,6 +16,41 @@ interface OcrService {
   recognize(imageBuffer: Buffer): Promise<string>
 }
 
+/**
+ * 使用示例：
+ *
+ * // 1. 基础流式搜索
+ * const alibabaService = new AlibabaService()
+ *
+ * for await (const pageSuppliers of alibabaService.searchSuppliersStream('laptop')) {
+ *   console.log(`获得一页供应商数据: ${pageSuppliers.length} 个`)
+ *   // 可以立即处理这批数据，无需等待全部完成
+ *   await processSuppliersData(pageSuppliers)
+ * }
+ *
+ * // 2. 带进度回调的流式搜索
+ * for await (const result of alibabaService.searchSuppliersWithProgress('laptop', {
+ *   onPageStart: (pageNumber) => {
+ *     console.log(`开始采集第 ${pageNumber} 页`)
+ *   },
+ *   onPageComplete: (suppliers, pageNumber, totalFound) => {
+ *     console.log(`第 ${pageNumber} 页完成，找到 ${suppliers.length} 个供应商，累计 ${totalFound} 个`)
+ *   },
+ *   onError: (error, pageNumber) => {
+ *     console.error(`第 ${pageNumber} 页采集失败: ${error.message}`)
+ *   },
+ *   maxPages: 10
+ * })) {
+ *   const { suppliers, pageNumber, totalFound } = result
+ *   console.log(`处理第 ${pageNumber} 页的 ${suppliers.length} 个供应商`)
+ *   // 实时处理数据
+ * }
+ *
+ * // 3. 兼容性使用（仍然支持原有的批量模式）
+ * const allSuppliers = await alibabaService.searchSuppliers('laptop')
+ * console.log(`获得全部供应商: ${allSuppliers.length} 个`)
+ */
+
 export class AlibabaService {
   private browserService: BrowserService
   private activeSearchTask: Promise<SupplierInfo[]> | null = null
@@ -43,23 +78,41 @@ export class AlibabaService {
   }
 
   /**
-   * 搜索阿里巴巴供应商
+   * 搜索阿里巴巴供应商 - 流式处理
    * @param keyword 搜索关键词
-   * @returns 供应商信息列表
+   * @param onPageComplete 每页完成时的回调函数
+   * @returns 异步生成器，产出每页的供应商信息
    */
-  async searchSuppliers(keyword: string): Promise<SupplierInfo[]> {
+  async *searchSuppliersStream(
+    keyword: string,
+    onPageComplete?: (suppliers: SupplierInfo[], pageNumber: number) => void
+  ): AsyncGenerator<SupplierInfo[], void, unknown> {
     if (this.activeSearchTask) {
       logger.warn('已有搜索任务正在进行中，等待当前任务完成')
-      return this.activeSearchTask
+      return
     }
 
     try {
-      this.activeSearchTask = this.executeSupplierSearch(keyword)
-      return await this.activeSearchTask
+      yield* this.executeSupplierSearchStream(keyword, onPageComplete)
     } finally {
       this.activeSearchTask = null
       await this.cleanupResources()
     }
+  }
+
+  /**
+   * 搜索阿里巴巴供应商 - 兼容性方法（保留原有接口）
+   * @param keyword 搜索关键词
+   * @returns 供应商信息列表
+   */
+  async searchSuppliers(keyword: string): Promise<SupplierInfo[]> {
+    const allSuppliers: SupplierInfo[] = []
+
+    for await (const pageSuppliers of this.searchSuppliersStream(keyword)) {
+      allSuppliers.push(...pageSuppliers)
+    }
+
+    return allSuppliers
   }
 
   /**
@@ -75,21 +128,25 @@ export class AlibabaService {
   }
 
   /**
-   * 执行供应商搜索操作
+   * 执行供应商搜索操作 - 流式处理
    * @param keyword 搜索关键词
+   * @param onPageComplete 每页完成时的回调函数
    */
-  private async executeSupplierSearch(keyword: string): Promise<SupplierInfo[]> {
+  private async *executeSupplierSearchStream(
+    keyword: string,
+    onPageComplete?: (suppliers: SupplierInfo[], pageNumber: number) => void
+  ): AsyncGenerator<SupplierInfo[], void, unknown> {
     const MAX_RETRIES = 3
-    const allSuppliers: SupplierInfo[] = []
 
     // 初始化浏览器服务
     await this.browserService.initialize()
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        logger.info(`开始搜索供应商 (尝试 ${attempt}/${MAX_RETRIES}): ${keyword}`)
+        logger.info(`开始流式搜索供应商 (尝试 ${attempt}/${MAX_RETRIES}): ${keyword}`)
         let pageNumber = 1
         let hasMoreResults = true
+        let totalSuppliers = 0
 
         while (hasMoreResults && pageNumber <= 50) {
           // 安全限制最多50页
@@ -120,8 +177,22 @@ export class AlibabaService {
 
               // 提取供应商
               const pageSuppliers = await this.extractSuppliersWithRetry(page, pageNumber)
-              allSuppliers.push(...pageSuppliers)
+              totalSuppliers += pageSuppliers.length
+
               logger.info(`第 ${pageNumber} 页采集完成: 找到 ${pageSuppliers.length} 个供应商`)
+              logger.info(`累计采集: ${totalSuppliers} 个供应商`)
+
+              // 调用回调函数（如果提供）
+              if (onPageComplete) {
+                try {
+                  onPageComplete(pageSuppliers, pageNumber)
+                } catch (callbackError) {
+                  logger.warn(`页面完成回调函数执行失败: ${getErrorMessage(callbackError)}`)
+                }
+              }
+
+              // 立即返回当前页的数据
+              yield pageSuppliers
 
               pageNumber++
             } else if (await isCaptchaPage(page)) {
@@ -142,11 +213,11 @@ export class AlibabaService {
           }
         }
 
-        logger.info(`供应商采集完成: 共找到 ${allSuppliers.length} 个供应商`)
-        return allSuppliers
+        logger.info(`流式供应商采集完成: 共采集 ${totalSuppliers} 个供应商`)
+        return // 成功完成，退出重试循环
       } catch (error) {
         const errorMessage = getErrorMessage(error)
-        logger.error(`供应商搜索失败 (尝试 ${attempt}): ${errorMessage}`)
+        logger.error(`流式供应商搜索失败 (尝试 ${attempt}): ${errorMessage}`)
 
         if (attempt < MAX_RETRIES) {
           const delay = attempt * AlibabaService.BASE_RETRY_DELAY
@@ -154,12 +225,140 @@ export class AlibabaService {
           await new Promise((resolve) => setTimeout(resolve, delay))
           await this.browserService.reset()
         } else {
-          logger.error(`所有搜索尝试均失败: ${keyword}`)
+          logger.error(`所有流式搜索尝试均失败: ${keyword}`)
+          throw error // 最后一次尝试失败时抛出错误
         }
       }
     }
+  }
 
-    return allSuppliers
+  /**
+   * 搜索阿里巴巴供应商 - 带进度回调的流式处理
+   * @param keyword 搜索关键词
+   * @param options 搜索选项
+   * @returns 异步生成器，产出每页的供应商信息
+   */
+  async *searchSuppliersWithProgress(
+    keyword: string,
+    options: {
+      onPageStart?: (pageNumber: number) => void
+      onPageComplete?: (suppliers: SupplierInfo[], pageNumber: number, totalFound: number) => void
+      onError?: (error: Error, pageNumber: number) => void
+      maxPages?: number
+    } = {}
+  ): AsyncGenerator<
+    { suppliers: SupplierInfo[]; pageNumber: number; totalFound: number },
+    void,
+    unknown
+  > {
+    const { onPageStart, onPageComplete, onError, maxPages = 50 } = options
+    let totalFound = 0
+
+    try {
+      // 初始化浏览器服务
+      await this.browserService.initialize()
+
+      let pageNumber = 1
+      let hasMoreResults = true
+
+      while (hasMoreResults && pageNumber <= maxPages) {
+        try {
+          // 触发页面开始回调
+          if (onPageStart) {
+            try {
+              onPageStart(pageNumber)
+            } catch (callbackError) {
+              logger.warn(`页面开始回调函数执行失败: ${getErrorMessage(callbackError)}`)
+            }
+          }
+
+          logger.info(`正在采集第 ${pageNumber} 页供应商`)
+          const searchUrl = buildSearchUrl(keyword, pageNumber)
+
+          // 获取新页面
+          const page = await this.acquireNewPage()
+
+          try {
+            // 稳健导航
+            const navigationSuccess = await this.robustGoto(page, searchUrl)
+
+            if (!navigationSuccess) {
+              logger.warn(`导航到第 ${pageNumber} 页失败，跳过`)
+              pageNumber++
+              continue
+            }
+
+            // 检查页面类型
+            if (await isSupplierSearchPage(page)) {
+              // 检查是否无结果
+              if (await hasNoMoreResults(page)) {
+                logger.info(`第 ${pageNumber} 页无更多结果，停止采集`)
+                hasMoreResults = false
+                break
+              }
+
+              // 提取供应商
+              const pageSuppliers = await this.extractSuppliersWithRetry(page, pageNumber)
+              totalFound += pageSuppliers.length
+
+              logger.info(`第 ${pageNumber} 页采集完成: 找到 ${pageSuppliers.length} 个供应商`)
+              logger.info(`累计采集: ${totalFound} 个供应商`)
+
+              // 调用完成回调函数
+              if (onPageComplete) {
+                try {
+                  onPageComplete(pageSuppliers, pageNumber, totalFound)
+                } catch (callbackError) {
+                  logger.warn(`页面完成回调函数执行失败: ${getErrorMessage(callbackError)}`)
+                }
+              }
+
+              // 立即返回当前页的数据
+              yield {
+                suppliers: pageSuppliers,
+                pageNumber,
+                totalFound
+              }
+
+              pageNumber++
+            } else if (await isCaptchaPage(page)) {
+              // 处理复杂验证码
+              const captchaSolved = await this.handleComplexCaptcha(page)
+              if (!captchaSolved) {
+                logger.warn('验证码处理失败，跳过当前页')
+                pageNumber++
+              }
+            } else {
+              logger.warn(`未知页面类型，停止采集`)
+              hasMoreResults = false
+              break
+            }
+          } finally {
+            // 释放页面资源
+            await this.releasePage(page)
+          }
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error))
+          logger.error(`第 ${pageNumber} 页采集失败: ${err.message}`)
+
+          // 调用错误回调
+          if (onError) {
+            try {
+              onError(err, pageNumber)
+            } catch (callbackError) {
+              logger.warn(`错误回调函数执行失败: ${getErrorMessage(callbackError)}`)
+            }
+          }
+
+          // 决定是否继续处理下一页
+          pageNumber++
+        }
+      }
+
+      logger.info(`流式供应商采集完成: 共采集 ${totalFound} 个供应商`)
+    } finally {
+      await this.cleanupResources()
+    }
   }
 
   /**

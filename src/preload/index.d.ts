@@ -43,12 +43,39 @@ interface UnifiedElectronAPI extends ElectronAPI {
   }
 
   alibaba?: {
+    // 批量搜索（兼容性方法）
     searchSuppliers: (
       keyword: string
     ) => Promise<{ success: boolean; data?: SupplierInfo[]; error?: string }>
+
+    // 流式搜索
+    searchSuppliersStream: (
+      keyword: string
+    ) => Promise<{ success: boolean; totalSuppliers?: number; error?: string }>
+
+    // 取消搜索
+    cancelSearch: () => Promise<{ success: boolean; message?: string }>
+
+    // 事件监听
     onSearchProgress: (callback: (message: string) => void) => void
-    onSearchComplete: (callback: (suppliers: SupplierInfo[]) => void) => void
-    onSearchError: (callback: (error: string) => void) => void
+    onSearchPageStart: (callback: (data: { pageNumber: number; message: string }) => void) => void
+    onSearchPageComplete: (
+      callback: (data: {
+        suppliers: SupplierInfo[]
+        pageNumber: number
+        totalFound: number
+        message: string
+      }) => void
+    ) => void
+    onSearchComplete: (
+      callback: (data: { totalSuppliers?: number; message: string } | SupplierInfo[]) => void
+    ) => void
+    onSearchError: (
+      callback: (data: { error: string; pageNumber?: number; message: string } | string) => void
+    ) => void
+
+    // 清理监听器
+    removeAllListeners: () => void
   }
 }
 

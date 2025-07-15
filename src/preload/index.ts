@@ -60,18 +60,52 @@ const unifiedAPI = {
   },
 
   alibaba: {
+    // 兼容性方法 - 批量搜索
     searchSuppliers: (keyword: string) =>
       ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_SUPPLIERS, keyword),
+
+    // 新方法 - 流式搜索
+    searchSuppliersStream: (keyword: string) =>
+      ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_SUPPLIERS_STREAM, keyword),
+
+    // 取消搜索
+    cancelSearch: () => ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_CANCEL),
+
+    // 事件监听
     onSearchProgress: (callback: (message: string) => void) => {
       ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_PROGRESS, (_, message: string) => callback(message))
     },
-    onSearchComplete: (callback: (suppliers: unknown[]) => void) => {
-      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_COMPLETE, (_, suppliers: unknown[]) =>
-        callback(suppliers)
-      )
+    onSearchPageStart: (callback: (data: { pageNumber: number; message: string }) => void) => {
+      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_PAGE_START, (_, data) => callback(data))
     },
-    onSearchError: (callback: (error: string) => void) => {
-      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_ERROR, (_, error: string) => callback(error))
+    onSearchPageComplete: (
+      callback: (data: {
+        suppliers: unknown[]
+        pageNumber: number
+        totalFound: number
+        message: string
+      }) => void
+    ) => {
+      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_PAGE_COMPLETE, (_, data) => callback(data))
+    },
+    onSearchComplete: (
+      callback: (data: { totalSuppliers?: number; message: string } | unknown[]) => void
+    ) => {
+      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_COMPLETE, (_, data) => callback(data))
+    },
+    onSearchError: (
+      callback: (data: { error: string; pageNumber?: number; message: string } | string) => void
+    ) => {
+      ipcRenderer.on(ALIBABA_CHANNELS.SEARCH_ERROR, (_, data) => callback(data))
+    },
+
+    // 移除事件监听
+    removeAllListeners: () => {
+      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_PROGRESS)
+      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_PAGE_START)
+      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_PAGE_COMPLETE)
+      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_COMPLETE)
+      ipcRenderer.removeAllListeners(ALIBABA_CHANNELS.SEARCH_ERROR)
     }
   }
 }
