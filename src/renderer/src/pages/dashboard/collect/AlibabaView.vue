@@ -233,8 +233,12 @@ onUnmounted(() => {
       </div>
     </div>
     <div class="text-caption text-grey-6">
-      <span v-if="searchMode === 'stream'">流式搜索：每采集一页立即显示结果，实时反馈进度</span>
-      <span v-else>批量搜索：等待所有页面采集完成后统一显示结果</span>
+      <span v-if="searchMode === 'stream'"
+        >流式搜索：每采集一页立即显示结果，实时反馈进度，如果不设置最大页码数，则不限制页码数</span
+      >
+      <span v-else
+        >批量搜索：等待所有页面采集完成后统一显示结果，如果不设置最大页数，则默认限制为 50 页</span
+      >
     </div>
   </div>
 
