@@ -5,15 +5,17 @@ import { RouterView } from 'vue-router'
 <template>
   <q-page-container>
     <div class="q-pa-md">
-      <RouterView v-slot="{ Component }">
-        <KeepAlive>
-          <Suspense>
-            <template #default>
-              <component :is="Component" />
-            </template>
-          </Suspense>
-        </KeepAlive>
-      </RouterView>
+      <!-- <RouterView v-slot="{ Component }">
+        <template v-if="Component">
+          <KeepAlive>
+            <Suspense>
+              <component :is="Component"></component>
+              <template #fallback> 正在加载... </template>
+            </Suspense>
+          </KeepAlive>
+        </template>
+      </RouterView> -->
+      <RouterView></RouterView>
     </div>
   </q-page-container>
 </template>

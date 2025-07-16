@@ -48,19 +48,18 @@ interface UnifiedElectronAPI extends ElectronAPI {
       keyword: string,
       maxPages?: number
     ) => Promise<{ success: boolean; data?: SupplierInfo[]; error?: string }>
-
     // 流式搜索
     searchSuppliersStream: (
       keyword: string,
       maxPages?: number
     ) => Promise<{ success: boolean; totalSuppliers?: number; error?: string }>
-
     // 取消搜索
     cancelSearch: () => Promise<{ success: boolean; message?: string }>
-
-    // 事件监听
+    // 监听搜索进度
     onSearchProgress: (callback: (message: string) => void) => void
+    // 监听搜索页面开始
     onSearchPageStart: (callback: (data: { pageNumber: number; message: string }) => void) => void
+    // 监听搜索页面完成
     onSearchPageComplete: (
       callback: (data: {
         suppliers: SupplierInfo[]
@@ -69,13 +68,14 @@ interface UnifiedElectronAPI extends ElectronAPI {
         message: string
       }) => void
     ) => void
+    // 监听搜索完成
     onSearchComplete: (
       callback: (data: { totalSuppliers?: number; message: string } | SupplierInfo[]) => void
     ) => void
+    // 监听搜索错误
     onSearchError: (
       callback: (data: { error: string; pageNumber?: number; message: string } | string) => void
     ) => void
-
     // 清理监听器
     removeAllListeners: () => void
   }

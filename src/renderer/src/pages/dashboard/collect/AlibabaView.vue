@@ -11,7 +11,22 @@ const currentPage = ref(0)
 const totalPages = ref(0)
 const totalFound = ref(0)
 const searchMode = ref<'batch' | 'stream'>('stream')
-const maxPages = ref(100) // 最大页数限制
+const maxPages = ref(20) // 最大页数限制
+
+const columns = [
+  { name: 'index', align: 'left' as const, label: '序号', field: 'index', sortable: true },
+  { name: 'cnName', align: 'left' as const, label: '中文名称', field: 'cnName', sortable: true },
+  { name: 'enName', align: 'left' as const, label: '英文名称', field: 'enName', sortable: true },
+  { name: 'phone', align: 'left' as const, label: '电话', field: 'phone' },
+  { name: 'email', align: 'left' as const, label: '邮箱', field: 'email' },
+  { name: 'country', align: 'left' as const, label: '国家', field: 'country' },
+  { name: 'province', align: 'left' as const, label: '省份', field: 'province' },
+  { name: 'city', align: 'left' as const, label: '城市', field: 'city' },
+  { name: 'address', align: 'left' as const, label: '地址', field: 'address' },
+  { name: 'website', align: 'left' as const, label: '官网', field: 'website' },
+  { name: 'establishedYear', align: 'left' as const, label: '成立年份', field: 'establishedYear' },
+  { name: 'creditCode', align: 'left' as const, label: '信用码', field: 'creditCode' }
+]
 
 // 搜索函数 - 批量模式
 const searchBatch = async (): Promise<void> => {
@@ -127,10 +142,10 @@ const handleSearchPageComplete = (data: {
   console.log('当前累计供应商数量:', suppliers.value.length)
 
   // 数据去重：基于英文名称和URL进行去重
-  const existingKeys = new Set(suppliers.value.map((s) => `${s.englishName}-${s.albabaURL}`))
+  const existingKeys = new Set(suppliers.value.map((s) => `${s.enName}-${s.alibabaURL}`))
 
   const newSuppliers = data.suppliers.filter((supplier) => {
-    const key = `${supplier.englishName}-${supplier.albabaURL}`
+    const key = `${supplier.enName}-${supplier.alibabaURL}`
     return !existingKeys.has(key)
   })
 
@@ -216,6 +231,39 @@ onUnmounted(() => {
           { label: '批量搜索', value: 'batch' }
         ]"
       />
+      <!--
+      <div>
+        <q-btn-dropdown color="primary" flat dropdown-icon="filter_list">
+          <q-list>
+            <q-item-label header>最大搜索页数</q-item-label>
+            <q-item v-close-popup>
+              <q-input
+                v-model.number="maxPages"
+                type="number"
+                outlined
+                dense
+                min="0"
+                bg-color="white"
+                label="最大搜索页数"
+                stack-label
+                style="width: 150px"
+              />
+            </q-item>
+
+            <q-item v-close-popup clickable>
+              <q-item-section>
+                <q-item-label>Videos</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-close-popup clickable>
+              <q-item-section>
+                <q-item-label>Articles</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-btn-dropdown>
+      </div> -->
       <div>
         <q-input
           v-model.number="maxPages"
@@ -266,7 +314,7 @@ onUnmounted(() => {
   </q-input>
 
   <!-- 进度信息 -->
-  <div v-if="loading || progressMessage" class="q-mt-md">
+  <div v-if="loading || progressMessage" class="">
     <q-linear-progress :indeterminate="loading" color="primary" size="4px" class="q-mb-sm" />
     <div class="text-caption text-primary">
       {{ progressMessage || '正在搜索...' }}
@@ -329,58 +377,14 @@ onUnmounted(() => {
     </div>
 
     <!-- 供应商列表表格 -->
-    <q-markup-table class="q-mt-md">
-      <thead>
-        <tr class="bg-grey-3">
-          <th class="text-left">序号</th>
-          <th class="text-left">中文名称</th>
-          <th class="text-left">英文名称</th>
-          <th class="text-left">电话</th>
-          <th class="text-left">邮箱</th>
-          <th class="text-left">国家</th>
-          <th class="text-left">省份</th>
-          <th class="text-left">城市</th>
-          <th class="text-left">地址</th>
-          <th class="text-left">官网</th>
-          <th class="text-left">成立年份</th>
-          <th class="text-left">信用码</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="supplier in suppliers" :key="supplier.id">
-          <td class="text-left">{{ supplier.id }}</td>
-          <td class="text-left">{{ supplier.chineseName || '-' }}</td>
-          <td class="text-left">
-            <a :href="supplier.albabaURL" target="_blank">
-              {{ supplier.englishName || '-' }}
-            </a>
-          </td>
-          <td class="text-left">{{ supplier.phone || '-' }}</td>
-          <td class="text-left">{{ supplier.email || '-' }}</td>
-          <td class="text-left">{{ supplier.country || '-' }}</td>
-          <td class="text-left">{{ supplier.province || '-' }}</td>
-          <td class="text-left">{{ supplier.city || '-' }}</td>
-          <td class="text-left">{{ supplier.address || '-' }}</td>
-          <td class="text-left">
-            <a
-              v-if="supplier.website"
-              :href="
-                supplier.website.startsWith('http')
-                  ? supplier.website
-                  : 'https://' + supplier.website
-              "
-              target="_blank"
-              class="text-primary"
-            >
-              {{ supplier.website }}
-            </a>
-            <span v-else>-</span>
-          </td>
-          <td class="text-left">{{ supplier.establishedYear || '-' }}</td>
-          <td class="text-left">{{ supplier.creditCode || '-' }}</td>
-        </tr>
-      </tbody>
-    </q-markup-table>
+    <q-table
+      :rows="suppliers"
+      :columns="columns"
+      row-key="index"
+      class="q-mt-md"
+      table-header-class="bg-grey-3"
+    >
+    </q-table>
   </div>
 
   <!-- 空状态 -->

@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { Quasar, Dialog, Notify } from 'quasar'
+import quasarLang from 'quasar/lang/zh-CN'
 
 import pinia from './stores'
 import router from './router'
@@ -18,6 +19,7 @@ app.use(Quasar, {
     Dialog,
     Notify
   }, // import Quasar plugins and add here
+  lang: quasarLang,
   config: {
     brand: {}
   }

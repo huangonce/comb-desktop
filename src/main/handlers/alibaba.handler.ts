@@ -50,7 +50,7 @@ export function registerAlibabaHandlers(): void {
     ALIBABA_CHANNELS.SEARCH_SUPPLIERS_STREAM,
     async (event: IpcMainInvokeEvent, keyword: string, maxPages?: number) => {
       try {
-        logger.info(`开始流式搜索阿里巴巴供应商，关键词: ${keyword}`)
+        logger.info(`阿里巴巴国际站流式处理，关键词: ${keyword}`)
 
         // 创建新的控制器
         currentSearchController = new AbortController()
