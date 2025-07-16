@@ -2,8 +2,8 @@
  * 浏览器服务使用示例
  */
 
-import { BrowserService } from './browser.service'
-import { logger } from './logger.service'
+import { BrowserService } from '../browser.service'
+import { logger } from '../logger.service'
 
 // 基本用法示例
 export async function basicUsage(): Promise<void> {

@@ -11,7 +11,7 @@ const currentPage = ref(0)
 const totalPages = ref(0)
 const totalFound = ref(0)
 const searchMode = ref<'batch' | 'stream'>('stream')
-const maxPages = ref(20) // 最大页数限制
+const maxPages = ref(2) // 最大页数限制
 
 const columns = [
   { name: 'index', align: 'left' as const, label: '序号', field: 'index', sortable: true },
@@ -27,6 +27,14 @@ const columns = [
   { name: 'establishedYear', align: 'left' as const, label: '成立年份', field: 'establishedYear' },
   { name: 'creditCode', align: 'left' as const, label: '信用码', field: 'creditCode' }
 ]
+
+const pagination = ref({
+  sortBy: 'index',
+  descending: false,
+  page: 1,
+  rowsPerPage: 10
+})
+const rowsPerPageOptions: Array<number> = [10, 20, 50, 100, 0]
 
 // 搜索函数 - 批量模式
 const searchBatch = async (): Promise<void> => {
@@ -319,15 +327,7 @@ onUnmounted(() => {
     <div class="text-caption text-primary">
       {{ progressMessage || '正在搜索...' }}
     </div>
-    <!-- 流式搜索进度详情 -->
-    <div v-if="searchMode === 'stream' && (currentPage > 0 || totalFound > 0)" class="q-mt-sm">
-      <q-chip v-if="currentPage > 0" color="blue" text-color="white" icon="pages" size="sm">
-        第 {{ currentPage }} 页
-      </q-chip>
-      <q-chip v-if="totalFound > 0" color="green" text-color="white" icon="business" size="sm">
-        累计 {{ totalFound }} 个
-      </q-chip>
-    </div>
+
   </div>
 
   <!-- 错误信息 -->
@@ -378,6 +378,8 @@ onUnmounted(() => {
 
     <!-- 供应商列表表格 -->
     <q-table
+      v-model:pagination="pagination"
+      :rows-per-page-options="rowsPerPageOptions"
       :rows="suppliers"
       :columns="columns"
       row-key="index"

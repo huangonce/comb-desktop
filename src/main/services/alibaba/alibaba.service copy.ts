@@ -1,7 +1,7 @@
 import { Page, Locator } from 'playwright-core'
-import { BrowserService, type NavigationOptions } from './browser.service'
-import { logger } from './logger.service'
-import { SupplierInfo } from '../../shared/SupplierInfo'
+import { BrowserService, type NavigationOptions } from '../browser.service'
+import { logger } from '../logger.service'
+import { SupplierInfo } from '../../../shared/SupplierInfo'
 import {
   buildSearchUrl,
   getErrorMessage,
@@ -9,7 +9,7 @@ import {
   isCaptchaPage,
   isSupplierSearchPage,
   normalizeUrl
-} from './alibaba/utils'
+} from './utils'
 
 // 第三方服务接口
 interface OcrService {

@@ -3,8 +3,8 @@
  * 展示更简洁、健壮的 API 使用方式
  */
 
-import { BrowserService } from './browser.service'
-import { logger } from './logger.service'
+import { BrowserService } from '../browser.service'
+import { logger } from '../logger.service'
 
 /**
  * 基本用法示例

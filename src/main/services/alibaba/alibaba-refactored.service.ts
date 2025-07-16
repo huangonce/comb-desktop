@@ -1,8 +1,8 @@
 import { Page } from 'playwright-core'
-import { BrowserService } from './browser.service'
-import { logger } from './logger.service'
-import { SupplierInfo } from '../../shared/SupplierInfo'
-import { getErrorMessage } from './alibaba/utils'
+import { BrowserService } from '../browser.service'
+import { logger } from '../logger.service'
+import { SupplierInfo } from '../../../shared/SupplierInfo'
+import { getErrorMessage } from './utils'
 
 /**
  * 重构后的阿里巴巴供应商搜索服务

@@ -3,8 +3,8 @@
  * 展示如何使用新的多实例和页面池功能
  */
 
-import { BrowserService } from './browser.service'
-import { logger } from './logger.service'
+import { BrowserService } from '../browser.service'
+import { logger } from '../logger.service'
 
 // 示例1: 基本用法
 export async function basicUsage(): Promise<void> {
@@ -15,7 +15,7 @@ export async function basicUsage(): Promise<void> {
     await browserService.initialize()
 
     // 获取页面
-    const pageWrapper = await browserService.getPage()
+    const pageWrapper = await browserService.createPage()
 
     // 导航到URL
     await pageWrapper.page.goto('https://example.com')
@@ -26,7 +26,6 @@ export async function basicUsage(): Promise<void> {
 
     // 释放页面（返回到池中）
     await browserService.releasePage(pageWrapper)
-
   } finally {
     await browserService.terminate()
   }
@@ -55,11 +54,7 @@ export async function multiInstanceUsage() {
     ])
 
     // 获取所有页面的标题
-    const titles = await Promise.all([
-      page1.page.title(),
-      page2.page.title(),
-      page3.page.title()
-    ])
+    const titles = await Promise.all([page1.page.title(), page2.page.title(), page3.page.title()])
 
     logger.info('页面标题:', titles)
 
@@ -69,7 +64,6 @@ export async function multiInstanceUsage() {
       browserService.releasePage(page2),
       browserService.releasePage(page3)
     ])
-
   } finally {
     await browserService.terminate()
   }
@@ -106,7 +100,6 @@ export async function pagePoolUsage() {
     logger.info(`复用页面: ${reusedPage.id}`)
 
     await browserService.releasePage(reusedPage)
-
   } finally {
     await browserService.terminate()
   }
@@ -134,7 +127,6 @@ export async function legacyCompatibility() {
 
     // 关闭额外页面
     await additionalPage.close()
-
   } finally {
     await browserService.terminate()
   }
@@ -168,7 +160,6 @@ export async function errorHandlingExample() {
     }
 
     await browserService.releasePage(pageWrapper)
-
   } finally {
     await browserService.terminate()
   }
