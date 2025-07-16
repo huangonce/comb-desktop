@@ -54,8 +54,6 @@ const searchStream = async (): Promise<void> => {
   totalPages.value = 0
   totalFound.value = 0
 
-  console.log(maxPages.value, '最大页数')
-
   try {
     // 调用主进程的流式搜索功能
     const result = await window.electron.alibaba?.searchSuppliersStream(

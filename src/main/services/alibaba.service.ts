@@ -518,7 +518,7 @@ export class AlibabaService {
       for (let i = 0; i < supplierCards.length; i += batchSize) {
         const batch = supplierCards.slice(i, i + batchSize)
         const batchPromises = batch.map((card, index) =>
-          this.processSupplierCard(card, (pageNumber - 1) * 10 + i + index + 1)
+          this.processSupplierCard(card, (pageNumber - 1) * 20 + i + index + 1)
         )
 
         const batchResults = await Promise.allSettled(batchPromises)
