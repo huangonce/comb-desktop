@@ -11,6 +11,7 @@ const currentPage = ref(0)
 const totalPages = ref(0)
 const totalFound = ref(0)
 const searchMode = ref<'batch' | 'stream'>('stream')
+const maxPages = ref(100) // 最大页数限制
 
 // 搜索函数 - 批量模式
 const searchBatch = async (): Promise<void> => {
@@ -23,7 +24,7 @@ const searchBatch = async (): Promise<void> => {
 
   try {
     // 调用主进程的阿里巴巴搜索功能
-    const result = await window.electron.alibaba?.searchSuppliers(keyword.value)
+    const result = await window.electron.alibaba?.searchSuppliers(keyword.value, maxPages.value)
 
     if (result?.success && result.data) {
       suppliers.value = result.data
@@ -53,9 +54,14 @@ const searchStream = async (): Promise<void> => {
   totalPages.value = 0
   totalFound.value = 0
 
+  console.log(maxPages.value, '最大页数')
+
   try {
     // 调用主进程的流式搜索功能
-    const result = await window.electron.alibaba?.searchSuppliersStream(keyword.value)
+    const result = await window.electron.alibaba?.searchSuppliersStream(
+      keyword.value,
+      maxPages.value
+    )
 
     if (result?.success) {
       console.log('流式搜索启动成功')
@@ -202,15 +208,30 @@ onUnmounted(() => {
 <template>
   <!-- 搜索模式选择 -->
   <div class="q-mb-md">
-    <q-btn-toggle
-      v-model="searchMode"
-      toggle-color="primary"
-      :options="[
-        { label: '流式搜索', value: 'stream' },
-        { label: '批量搜索', value: 'batch' }
-      ]"
-      class="q-mb-sm"
-    />
+    <div class="row items-center q-gutter-sm q-mb-sm">
+      <q-btn-toggle
+        v-model="searchMode"
+        toggle-color="primary"
+        size="md"
+        :options="[
+          { label: '流式搜索', value: 'stream' },
+          { label: '批量搜索', value: 'batch' }
+        ]"
+      />
+      <div>
+        <q-input
+          v-model.number="maxPages"
+          type="number"
+          outlined
+          dense
+          min="0"
+          bg-color="white"
+          label="最大搜索页数"
+          stack-label
+          style="width: 150px"
+        />
+      </div>
+    </div>
     <div class="text-caption text-grey-6">
       <span v-if="searchMode === 'stream'">流式搜索：每采集一页立即显示结果，实时反馈进度</span>
       <span v-else>批量搜索：等待所有页面采集完成后统一显示结果</span>

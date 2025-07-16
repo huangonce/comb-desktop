@@ -45,12 +45,14 @@ interface UnifiedElectronAPI extends ElectronAPI {
   alibaba?: {
     // 批量搜索（兼容性方法）
     searchSuppliers: (
-      keyword: string
+      keyword: string,
+      maxPages?: number
     ) => Promise<{ success: boolean; data?: SupplierInfo[]; error?: string }>
 
     // 流式搜索
     searchSuppliersStream: (
-      keyword: string
+      keyword: string,
+      maxPages?: number
     ) => Promise<{ success: boolean; totalSuppliers?: number; error?: string }>
 
     // 取消搜索

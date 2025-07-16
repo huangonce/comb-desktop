@@ -60,13 +60,13 @@ const unifiedAPI = {
   },
 
   alibaba: {
-    // 兼容性方法 - 批量搜索
-    searchSuppliers: (keyword: string) =>
-      ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_SUPPLIERS, keyword),
+    // 批量搜索
+    searchSuppliers: (keyword: string, maxPages?: number) =>
+      ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_SUPPLIERS, keyword, maxPages),
 
-    // 新方法 - 流式搜索
-    searchSuppliersStream: (keyword: string) =>
-      ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_SUPPLIERS_STREAM, keyword),
+    // 流式搜索
+    searchSuppliersStream: (keyword: string, maxPages?: number) =>
+      ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_SUPPLIERS_STREAM, keyword, maxPages),
 
     // 取消搜索
     cancelSearch: () => ipcRenderer.invoke(ALIBABA_CHANNELS.SEARCH_CANCEL),

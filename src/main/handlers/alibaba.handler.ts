@@ -19,14 +19,14 @@ export function registerAlibabaHandlers(): void {
   // 阿里巴巴供应商搜索IPC处理 - 兼容性方法
   ipcMain.handle(
     ALIBABA_CHANNELS.SEARCH_SUPPLIERS,
-    async (event: IpcMainInvokeEvent, keyword: string) => {
+    async (event: IpcMainInvokeEvent, keyword: string, maxPages?: number) => {
       try {
         logger.info(`开始搜索阿里巴巴供应商，关键词: ${keyword}`)
 
         // 发送进度更新
         event.sender.send(ALIBABA_CHANNELS.SEARCH_PROGRESS, '正在初始化浏览器...')
 
-        const suppliers = await alibabaService.searchSuppliers(keyword)
+        const suppliers = await alibabaService.searchSuppliers(keyword, maxPages)
 
         // 发送完成事件
         event.sender.send(ALIBABA_CHANNELS.SEARCH_COMPLETE, suppliers)
@@ -48,7 +48,7 @@ export function registerAlibabaHandlers(): void {
   // 阿里巴巴供应商流式搜索IPC处理 - 新方法
   ipcMain.handle(
     ALIBABA_CHANNELS.SEARCH_SUPPLIERS_STREAM,
-    async (event: IpcMainInvokeEvent, keyword: string) => {
+    async (event: IpcMainInvokeEvent, keyword: string, maxPages?: number) => {
       try {
         logger.info(`开始流式搜索阿里巴巴供应商，关键词: ${keyword}`)
 
@@ -83,7 +83,7 @@ export function registerAlibabaHandlers(): void {
               message: `第 ${pageNumber} 页采集失败: ${error.message}`
             })
           },
-          maxPages: 10 // 限制最多10页
+          maxPages // 使用传入的最大页数
         })) {
           // 检查是否被取消
           if (currentSearchController?.signal.aborted) {

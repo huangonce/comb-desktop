@@ -22,7 +22,7 @@ interface OcrService {
  * // 1. 基础流式搜索
  * const alibabaService = new AlibabaService()
  *
- * for await (const pageSuppliers of alibabaService.searchSuppliersStream('laptop')) {
+ * for await (const pageSuppliers of alibabaService.searchSuppliersStream('laptop', undefined, 10)) {
  *   console.log(`获得一页供应商数据: ${pageSuppliers.length} 个`)
  *   // 可以立即处理这批数据，无需等待全部完成
  *   await processSuppliersData(pageSuppliers)
@@ -39,7 +39,7 @@ interface OcrService {
  *   onError: (error, pageNumber) => {
  *     console.error(`第 ${pageNumber} 页采集失败: ${error.message}`)
  *   },
- *   maxPages: 10
+ *   maxPages: 10 // 限制最大页数，如果为 0 或不设置则不限制
  * })) {
  *   const { suppliers, pageNumber, totalFound } = result
  *   console.log(`处理第 ${pageNumber} 页的 ${suppliers.length} 个供应商`)
@@ -47,7 +47,7 @@ interface OcrService {
  * }
  *
  * // 3. 兼容性使用（仍然支持原有的批量模式）
- * const allSuppliers = await alibabaService.searchSuppliers('laptop')
+ * const allSuppliers = await alibabaService.searchSuppliers('laptop', 5) // 限制最大5页
  * console.log(`获得全部供应商: ${allSuppliers.length} 个`)
  */
 
@@ -81,11 +81,13 @@ export class AlibabaService {
    * 搜索阿里巴巴供应商 - 流式处理
    * @param keyword 搜索关键词
    * @param onPageComplete 每页完成时的回调函数
+   * @param maxPages 最大页数，如果为 0 或不设置则不限制
    * @returns 异步生成器，产出每页的供应商信息
    */
   async *searchSuppliersStream(
     keyword: string,
-    onPageComplete?: (suppliers: SupplierInfo[], pageNumber: number) => void
+    onPageComplete?: (suppliers: SupplierInfo[], pageNumber: number) => void,
+    maxPages?: number
   ): AsyncGenerator<SupplierInfo[], void, unknown> {
     if (this.activeSearchTask) {
       logger.warn('已有搜索任务正在进行中，等待当前任务完成')
@@ -93,7 +95,7 @@ export class AlibabaService {
     }
 
     try {
-      yield* this.executeSupplierSearchStream(keyword, onPageComplete)
+      yield* this.executeSupplierSearchStream(keyword, onPageComplete, maxPages)
     } finally {
       this.activeSearchTask = null
       await this.cleanupResources()
@@ -103,12 +105,13 @@ export class AlibabaService {
   /**
    * 搜索阿里巴巴供应商 - 兼容性方法（保留原有接口）
    * @param keyword 搜索关键词
+   * @param maxPages 最大页数，如果为 0 或不设置则不限制
    * @returns 供应商信息列表
    */
-  async searchSuppliers(keyword: string): Promise<SupplierInfo[]> {
+  async searchSuppliers(keyword: string, maxPages?: number): Promise<SupplierInfo[]> {
     const allSuppliers: SupplierInfo[] = []
 
-    for await (const pageSuppliers of this.searchSuppliersStream(keyword)) {
+    for await (const pageSuppliers of this.searchSuppliersStream(keyword, undefined, maxPages)) {
       allSuppliers.push(...pageSuppliers)
     }
 
@@ -131,12 +134,16 @@ export class AlibabaService {
    * 执行供应商搜索操作 - 流式处理
    * @param keyword 搜索关键词
    * @param onPageComplete 每页完成时的回调函数
+   * @param maxPages 最大页数，如果为 0 或不设置则不限制
    */
   private async *executeSupplierSearchStream(
     keyword: string,
-    onPageComplete?: (suppliers: SupplierInfo[], pageNumber: number) => void
+    onPageComplete?: (suppliers: SupplierInfo[], pageNumber: number) => void,
+    maxPages?: number
   ): AsyncGenerator<SupplierInfo[], void, unknown> {
     const MAX_RETRIES = 3
+    // 设置最大页数限制，如果 maxPages 为 0 或未设置，则不限制页数
+    const pageLimit = maxPages && maxPages > 0 ? maxPages : Number.MAX_SAFE_INTEGER
 
     // 初始化浏览器服务
     await this.browserService.initialize()
@@ -148,8 +155,8 @@ export class AlibabaService {
         let hasMoreResults = true
         let totalSuppliers = 0
 
-        while (hasMoreResults && pageNumber <= 50) {
-          // 安全限制最多50页
+        while (hasMoreResults && pageNumber <= pageLimit) {
+          // 根据配置限制页数
           logger.info(`正在采集第 ${pageNumber} 页供应商`)
           const searchUrl = buildSearchUrl(keyword, pageNumber)
 
@@ -251,7 +258,9 @@ export class AlibabaService {
     void,
     unknown
   > {
-    const { onPageStart, onPageComplete, onError, maxPages = 50 } = options
+    const { onPageStart, onPageComplete, onError, maxPages } = options
+    // 设置最大页数限制，如果 maxPages 为 0 或未设置，则不限制页数
+    const pageLimit = maxPages && maxPages > 0 ? maxPages : Number.MAX_SAFE_INTEGER
     let totalFound = 0
 
     try {
@@ -261,7 +270,7 @@ export class AlibabaService {
       let pageNumber = 1
       let hasMoreResults = true
 
-      while (hasMoreResults && pageNumber <= maxPages) {
+      while (hasMoreResults && pageNumber <= pageLimit) {
         try {
           // 触发页面开始回调
           if (onPageStart) {
