@@ -2,6 +2,7 @@ import { Page, Locator } from 'playwright-core'
 import { BrowserService, type NavigationOptions } from './browser.service'
 import { logger } from './logger.service'
 import { SupplierInfo } from '../../shared/SupplierInfo'
+import { TianyanchaService } from './tianyancha.service'
 import {
   buildSearchUrl,
   getErrorMessage,
@@ -53,6 +54,7 @@ interface OcrService {
 
 export class AlibabaService {
   private browserService: BrowserService
+  private tianyanchaService: TianyanchaService
   private activeSearchTask: Promise<SupplierInfo[]> | null = null
   private activePageIds: Set<string> = new Set() // 改用页面ID管理
   private pageIdToPageMap: Map<string, Page> = new Map() // 页面ID到Page的映射
@@ -75,6 +77,7 @@ export class AlibabaService {
 
   constructor(ocrService?: OcrService) {
     this.browserService = new BrowserService()
+    this.tianyanchaService = new TianyanchaService(this.browserService)
     this.ocrService = ocrService || null
   }
 
@@ -96,6 +99,16 @@ export class AlibabaService {
     }
 
     try {
+      // 在搜索前检查天眼查登录状态
+      logger.info('检查天眼查登录状态...')
+      const loginSuccess = await this.tianyanchaService.ensureLoggedIn()
+
+      if (!loginSuccess) {
+        logger.error('天眼查登录失败，无法继续搜索')
+        throw new Error('天眼查登录失败，无法继续搜索')
+      }
+
+      logger.info('天眼查登录验证成功，开始执行搜索')
       yield* this.executeSupplierSearchStream(keyword, onPageComplete, maxPages)
     } finally {
       this.activeSearchTask = null
@@ -136,6 +149,34 @@ export class AlibabaService {
     await Promise.allSettled(closePromises)
     this.activePageIds.clear()
     this.pageIdToPageMap.clear()
+  }
+
+  /**
+   * 获取天眼查登录状态
+   */
+  async getTianyanchaLoginStatus(): Promise<boolean> {
+    return await this.tianyanchaService.checkLoginStatus()
+  }
+
+  /**
+   * 手动触发天眼查登录
+   */
+  async loginTianyancha(): Promise<boolean> {
+    return await this.tianyanchaService.showLoginWindow()
+  }
+
+  /**
+   * 清除天眼查登录信息
+   */
+  clearTianyanchaLogin(): void {
+    this.tianyanchaService.clearLoginInfo()
+  }
+
+  /**
+   * 获取天眼查登录信息
+   */
+  getTianyanchaLoginInfo(): import('./tianyancha.service').TianyanchaLoginInfo | null {
+    return this.tianyanchaService.getLoginInfo()
   }
 
   /**
@@ -272,6 +313,17 @@ export class AlibabaService {
     let totalFound = 0
 
     try {
+      // 在搜索前检查天眼查登录状态
+      logger.info('检查天眼查登录状态...')
+      const loginSuccess = await this.tianyanchaService.ensureLoggedIn()
+
+      if (!loginSuccess) {
+        logger.error('天眼查登录失败，无法继续搜索')
+        throw new Error('天眼查登录失败，无法继续搜索')
+      }
+
+      logger.info('天眼查登录验证成功，开始执行搜索')
+
       // 初始化浏览器服务
       await this.browserService.initialize()
 
