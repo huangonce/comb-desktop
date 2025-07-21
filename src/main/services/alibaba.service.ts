@@ -54,7 +54,8 @@ interface OcrService {
 export class AlibabaService {
   private browserService: BrowserService
   private activeSearchTask: Promise<SupplierInfo[]> | null = null
-  private activePages: Set<Page> = new Set()
+  private activePageIds: Set<string> = new Set() // 改用页面ID管理
+  private pageIdToPageMap: Map<string, Page> = new Map() // 页面ID到Page的映射
   private ocrService: OcrService | null = null
 
   // 配置常量
@@ -122,12 +123,19 @@ export class AlibabaService {
    * 清理资源
    */
   private async cleanupResources(): Promise<void> {
-    for (const page of this.activePages) {
-      if (!page.isClosed()) {
-        await page.close().catch((e) => logger.warn(`关闭页面失败: ${getErrorMessage(e)}`))
+    // 关闭所有活动页面
+    const closePromises = Array.from(this.activePageIds).map(async (pageId) => {
+      try {
+        await this.browserService.closePage(pageId)
+        logger.debug(`页面已关闭: ${pageId}`)
+      } catch (error) {
+        logger.warn(`关闭页面失败: ${pageId}`, getErrorMessage(error))
       }
-    }
-    this.activePages.clear()
+    })
+
+    await Promise.allSettled(closePromises)
+    this.activePageIds.clear()
+    this.pageIdToPageMap.clear()
   }
 
   /**
@@ -161,7 +169,7 @@ export class AlibabaService {
           const searchUrl = buildSearchUrl(keyword, pageNumber)
 
           // 获取新页面
-          const page = await this.acquireNewPage()
+          const { page, pageId } = await this.acquireNewPage()
 
           try {
             // 稳健导航
@@ -216,7 +224,7 @@ export class AlibabaService {
             }
           } finally {
             // 释放页面资源
-            await this.releasePage(page)
+            await this.releasePage(pageId)
           }
         }
 
@@ -285,7 +293,7 @@ export class AlibabaService {
           const searchUrl = buildSearchUrl(keyword, pageNumber)
 
           // 获取新页面
-          const page = await this.acquireNewPage()
+          const { page, pageId } = await this.acquireNewPage()
 
           try {
             // 稳健导航
@@ -330,7 +338,7 @@ export class AlibabaService {
             pageNumber++
           } finally {
             // 释放页面资源
-            await this.releasePage(page)
+            await this.releasePage(pageId)
           }
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error))
@@ -359,23 +367,46 @@ export class AlibabaService {
   /**
    * 获取新页面（带池管理）
    */
-  private async acquireNewPage(): Promise<Page> {
-    if (this.activePages.size < AlibabaService.MAX_CONCURRENT_PAGES) {
-      const newPage = await this.browserService.createAdditionalPage()
-      this.activePages.add(newPage)
-      return newPage
+  private async acquireNewPage(): Promise<{ page: Page; pageId: string }> {
+    if (this.activePageIds.size < AlibabaService.MAX_CONCURRENT_PAGES) {
+      // 创建新页面
+      const pageId = await this.browserService.createPage({ setActive: false })
+      const page = this.browserService.getPage(pageId)
+      this.activePageIds.add(pageId)
+      this.pageIdToPageMap.set(pageId, page)
+
+      logger.debug(`创建新页面: ${pageId}`)
+      return { page, pageId }
     }
-    return this.browserService.getActivePage()
+
+    // 复用现有页面
+    const activePageId = this.browserService.getActivePageId()
+    if (activePageId) {
+      const page = this.browserService.getPage(activePageId)
+      return { page, pageId: activePageId }
+    }
+
+    // 创建第一个页面
+    const pageId = await this.browserService.createPage({ setActive: true })
+    const page = this.browserService.getPage(pageId)
+    this.activePageIds.add(pageId)
+    this.pageIdToPageMap.set(pageId, page)
+
+    return { page, pageId }
   }
 
   /**
    * 释放页面资源
    */
-  private async releasePage(page: Page): Promise<void> {
-    if (!page.isClosed()) {
-      await page.close()
+  private async releasePage(pageId: string): Promise<void> {
+    try {
+      await this.browserService.closePage(pageId)
+      this.activePageIds.delete(pageId)
+      this.pageIdToPageMap.delete(pageId)
+      logger.debug(`页面已释放: ${pageId}`)
+    } catch (error) {
+      logger.warn(`释放页面失败: ${pageId}`, getErrorMessage(error))
     }
-    this.activePages.delete(page)
   }
 
   /**
@@ -387,13 +418,23 @@ export class AlibabaService {
     options: NavigationOptions = {}
   ): Promise<boolean> {
     const maxRetries = options.retries || AlibabaService.MAX_PAGE_RETRIES
+    const pageId = this.getPageIdFromPage(page)
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        await page.goto(url, {
-          waitUntil: options.waitUntil || 'domcontentloaded',
-          timeout: options.timeout || 30000
-        })
+        // 使用新的浏览器服务导航API
+        if (pageId !== 'unknown-page') {
+          await this.browserService.navigateToUrl(url, pageId, {
+            waitUntil: options.waitUntil || 'domcontentloaded',
+            timeout: options.timeout || 30000
+          })
+        } else {
+          // 回退到直接导航
+          await page.goto(url, {
+            waitUntil: options.waitUntil || 'domcontentloaded',
+            timeout: options.timeout || 30000
+          })
+        }
 
         // 导航后验证码检查
         if (await isCaptchaPage(page)) {
@@ -418,8 +459,10 @@ export class AlibabaService {
    */
   private async recoverPageAfterFailure(page: Page): Promise<void> {
     try {
-      // 尝试重置到安全页面
-      await page.goto('about:blank', { timeout: 10000 })
+      // 使用新的导航API
+      await this.browserService.navigateToUrl('about:blank', this.getPageIdFromPage(page), {
+        timeout: 10000
+      })
       await page.waitForTimeout(1000)
 
       // 清除可能的残留状态
@@ -429,15 +472,37 @@ export class AlibabaService {
       })
     } catch (recoveryError) {
       logger.warn(`页面恢复失败: ${getErrorMessage(recoveryError)}`)
+      // 注意：页面恢复逻辑需要重新设计，因为我们现在使用 pageId 管理
+    }
+  }
 
-      // 彻底重置页面
-      if (!page.isClosed()) {
-        await page.close()
-        const newPage = await this.browserService.createAdditionalPage()
-        this.activePages.add(newPage)
-        this.activePages.delete(page)
+  /**
+   * 从 Page 对象获取 pageId
+   */
+  private getPageIdFromPage(page: Page): string {
+    // 从映射中查找页面ID
+    for (const [pageId, p] of this.pageIdToPageMap.entries()) {
+      if (p === page) {
+        return pageId
       }
     }
+
+    // 如果在映射中找不到，尝试从浏览器服务中查找
+    const allPageIds = this.browserService.getAllPageIds()
+    for (const pageId of allPageIds) {
+      try {
+        const p = this.browserService.getPage(pageId)
+        if (p === page) {
+          // 更新映射
+          this.pageIdToPageMap.set(pageId, page)
+          return pageId
+        }
+      } catch {
+        continue
+      }
+    }
+
+    return 'unknown-page'
   }
 
   /**

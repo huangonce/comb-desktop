@@ -4,6 +4,23 @@ import os from 'os'
 import { app } from 'electron'
 import { logger } from './logger.service'
 
+export type LoadState = 'load' | 'domcontentloaded' | 'networkidle' | 'commit'
+// Playwright资源类型定义
+export type ResourceType =
+  | 'document'
+  | 'stylesheet'
+  | 'image'
+  | 'media'
+  | 'font'
+  | 'script'
+  | 'texttrack'
+  | 'xhr'
+  | 'fetch'
+  | 'eventsource'
+  | 'websocket'
+  | 'manifest'
+  | 'other'
+
 // 浏览器配置接口
 export interface BrowserConfig {
   headless: boolean
@@ -13,13 +30,21 @@ export interface BrowserConfig {
   timeout: number
   maxRetries?: number
   retryDelay?: number
+  blockedDomains?: string[]
+  blockedResourceTypes?: ResourceType[]
 }
 
 // 导航选项接口
 export interface NavigationOptions {
-  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle' | 'commit'
+  waitUntil?: LoadState
   timeout?: number
   retries?: number
+}
+
+// 页面创建选项
+export interface PageOptions {
+  contextId?: string
+  setActive?: boolean
 }
 
 // 浏览器状态枚举
@@ -43,15 +68,25 @@ export class BrowserError extends Error {
   }
 }
 
+// 页面元数据
+interface PageMeta {
+  id: string
+  contextId: string
+  createdAt: Date
+  lastUsed: Date
+}
+
 export class BrowserService {
-  private browser: Browser | null = null
-  private context: BrowserContext | null = null
-  private activePage: Page | null = null
-  private config: BrowserConfig
-  private resolvedExecutablePath: string | undefined
-  private state: BrowserState = BrowserState.UNINITIALIZED
-  private initPromise: Promise<void> | null = null
-  private healthCheckInterval: NodeJS.Timeout | null = null
+  private browser: Browser | null = null // Playwright浏览器实例
+  private contexts: Map<string, BrowserContext> = new Map() // 浏览器上下文映射
+  private pages: Map<string, Page> = new Map() // 页面ID到Page对象的映射
+  private pageMeta: Map<string, PageMeta> = new Map() // 页面元数据映射
+  private activePageId: string | null = null // 当前活动页面ID
+  private config: BrowserConfig // 浏览器配置
+  private resolvedExecutablePath: string | undefined // 解析后的可执行文件路径
+  private state: BrowserState = BrowserState.UNINITIALIZED // 浏览器状态
+  private initPromise: Promise<void> | null = null // 初始化Promise
+  private healthCheckInterval: NodeJS.Timeout | null = null // 健康检查定时器
 
   // 常量定义
   private static readonly DEFAULT_USER_AGENT =
@@ -81,7 +116,7 @@ export class BrowserService {
     '--disable-ipc-flooding-protection'
   ] as const
 
-  private static readonly BLOCKED_DOMAINS = [
+  private static readonly DEFAULT_BLOCKED_DOMAINS = [
     'google-analytics',
     'googletagmanager',
     'facebook.com',
@@ -92,7 +127,7 @@ export class BrowserService {
     'scorecardresearch',
     'outbrain',
     'taboola'
-  ] as const
+  ]
 
   private static readonly DEFAULT_CONFIG: BrowserConfig = {
     headless: process.env.NODE_ENV !== 'development',
@@ -100,7 +135,9 @@ export class BrowserService {
     viewport: { width: 1920, height: 1080 },
     timeout: 60000,
     maxRetries: 3,
-    retryDelay: 2000
+    retryDelay: 2000,
+    blockedDomains: BrowserService.DEFAULT_BLOCKED_DOMAINS,
+    blockedResourceTypes: ['image', 'font', 'media']
   }
 
   /**
@@ -116,11 +153,6 @@ export class BrowserService {
     if (process.env.NODE_ENV === 'development') {
       this.config.headless = false
     }
-
-    // 绑定方法以确保正确的this上下文
-    this.handleBrowserDisconnect = this.handleBrowserDisconnect.bind(this)
-    this.handlePageError = this.handlePageError.bind(this)
-    this.handlePageCrash = this.handlePageCrash.bind(this)
   }
 
   /**
@@ -138,12 +170,9 @@ export class BrowserService {
   }
 
   /**
-   * 初始化浏览器实例 - 支持并发调用
+   * 初始化浏览器实例
    */
   public async initialize(): Promise<void> {
-    // 如果已经初始化或正在初始化，返回现有的Promise
-
-    console.log('检查浏览器状态:', this.state)
     if (this.state === BrowserState.READY) {
       return
     }
@@ -161,13 +190,19 @@ export class BrowserService {
    */
   public async checkHealth(): Promise<boolean> {
     try {
-      if (!this.browser?.isConnected() || !this.context || !this.activePage) {
+      if (!this.browser?.isConnected() || this.contexts.size === 0) {
         return false
       }
 
-      // 执行简单的JavaScript来测试页面响应
-      await this.activePage.evaluate(() => document.readyState)
-      return true
+      // 检查第一个上下文是否健康
+      const [firstContext] = this.contexts.values()
+      const testPage = await firstContext.newPage()
+      try {
+        await testPage.evaluate(() => document.readyState)
+        return true
+      } finally {
+        await testPage.close()
+      }
     } catch (error) {
       logger.debug('健康检查失败:', error)
       return false
@@ -175,46 +210,91 @@ export class BrowserService {
   }
 
   /**
-   * 导航到指定URL - 带重试机制
+   * 创建新页面
    */
-  public async navigateToUrl(url: string, options: NavigationOptions = {}): Promise<void> {
+  public async createPage(options: PageOptions = {}): Promise<string> {
+    await this.ensureReady()
+
+    const contextId = options.contextId || 'default'
+    let context = this.contexts.get(contextId)
+
+    // 如果上下文不存在，则创建
+    if (!context) {
+      context = await this.createBrowserContext(contextId)
+      this.contexts.set(contextId, context)
+    }
+
+    const page = await context.newPage()
+    await this.setupPageOptimizations(page, contextId)
+
+    const pageId = this.generatePageId()
+    this.pages.set(pageId, page)
+    this.pageMeta.set(pageId, {
+      id: pageId,
+      contextId,
+      createdAt: new Date(),
+      lastUsed: new Date()
+    })
+
+    // 设置事件监听
+    this.setupPageEventListeners(pageId)
+
+    logger.info(`页面已创建: ${pageId} [上下文: ${contextId}]`)
+
+    // 如果设置为活动页面或没有活动页面，则设为活动页面
+    if (options.setActive || !this.activePageId) {
+      this.setActivePage(pageId)
+    }
+
+    return pageId
+  }
+
+  /**
+   * 导航到指定URL
+   */
+  public async navigateToUrl(
+    url: string,
+    pageId: string,
+    options: NavigationOptions = {}
+  ): Promise<void> {
     const {
       waitUntil = 'domcontentloaded',
       timeout = this.config.timeout,
       retries = this.config.maxRetries || 3
     } = options
 
+    const page = this.getPage(pageId)
     let lastError: Error | null = null
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        await this.ensureReady()
-        const page = this.getActivePage()
-
-        logger.info(`导航至 (尝试 ${attempt}/${retries}): ${url}`)
+        logger.info(`导航至 (尝试 ${attempt}/${retries}): ${url} [页面: ${pageId}]`)
 
         await page.goto(url, { waitUntil, timeout })
-        logger.debug(`导航成功: ${url}`)
+        logger.debug(`导航成功: ${url} [页面: ${pageId}]`)
+
+        // 更新页面最后使用时间
+        this.updatePageLastUsed(pageId)
         return
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
-        logger.warn(`导航失败 (尝试 ${attempt}/${retries}): ${lastError.message}`)
+        logger.warn(`导航失败 (尝试 ${attempt}/${retries}): ${lastError.message} [页面: ${pageId}]`)
 
         if (attempt < retries) {
           const delay = (this.config.retryDelay || 2000) * attempt
-          logger.info(`等待 ${delay}ms 后重试`)
+          logger.info(`等待 ${delay}ms 后重试 [页面: ${pageId}]`)
           await this.sleep(delay)
 
-          // 检查是否需要重新初始化
-          if (!(await this.checkHealth())) {
-            await this.initialize()
+          // 检查页面是否需要恢复
+          if (page.isClosed()) {
+            await this.restorePage(pageId)
           }
         }
       }
     }
 
     throw new BrowserError(
-      `导航失败，已重试 ${retries} 次: ${url}`,
+      `导航失败，已重试 ${retries} 次: ${url} [页面: ${pageId}]`,
       'NAVIGATION_FAILED',
       lastError || undefined
     )
@@ -223,11 +303,11 @@ export class BrowserService {
   /**
    * 等待页面稳定状态
    */
-  public async waitForStableState(timeout: number = 30_000): Promise<void> {
+  public async waitForStableState(pageId: string, timeout: number = 30_000): Promise<void> {
     const STABILITY_THRESHOLD = 1000
     const POLL_INTERVAL = 300
 
-    const page = this.getActivePage()
+    const page = this.getPage(pageId)
     const startTime = Date.now()
     let stableStart = 0
 
@@ -254,7 +334,8 @@ export class BrowserService {
           if (stableStart === 0) {
             stableStart = Date.now()
           } else if (Date.now() - stableStart > STABILITY_THRESHOLD) {
-            logger.debug('页面已达稳定状态')
+            logger.debug(`页面已达稳定状态 [页面: ${pageId}]`)
+            this.updatePageLastUsed(pageId)
             return
           }
         } else {
@@ -263,40 +344,86 @@ export class BrowserService {
 
         await this.sleep(POLL_INTERVAL)
       } catch (error) {
-        logger.warn('稳定性检查异常:', error)
+        logger.warn(`稳定性检查异常 [页面: ${pageId}]:`, error)
         stableStart = 0
         await this.sleep(POLL_INTERVAL)
       }
     }
 
-    logger.warn(`页面稳定状态检测超时 (${timeout}ms)`)
+    logger.warn(`页面稳定状态检测超时 (${timeout}ms) [页面: ${pageId}]`)
   }
 
   /**
-   * 获取当前活动页面
+   * 设置活动页面
    */
-  public getActivePage(): Page {
-    if (!this.activePage) {
-      throw new BrowserError('页面未初始化', 'PAGE_NOT_INITIALIZED')
+  public setActivePage(pageId: string): void {
+    if (!this.pages.has(pageId)) {
+      throw new BrowserError(`页面不存在: ${pageId}`, 'PAGE_NOT_FOUND')
     }
-    return this.activePage
+    this.activePageId = pageId
+    logger.info(`设置活动页面: ${pageId}`)
   }
 
   /**
-   * 创建额外页面（供外部使用）
+   * 获取活动页面ID
    */
-  public async createAdditionalPage(): Promise<Page> {
-    await this.ensureReady()
+  public getActivePageId(): string | null {
+    return this.activePageId
+  }
 
-    if (!this.context) {
-      throw new BrowserError('浏览器上下文未创建', 'CONTEXT_NOT_CREATED')
+  /**
+   * 获取页面对象
+   */
+  public getPage(pageId: string): Page {
+    const page = this.pages.get(pageId)
+    if (!page) {
+      throw new BrowserError(`页面不存在: ${pageId}`, 'PAGE_NOT_FOUND')
+    }
+    return page
+  }
+
+  /**
+   * 获取页面元数据
+   */
+  public getPageMeta(pageId: string): PageMeta {
+    const meta = this.pageMeta.get(pageId)
+    if (!meta) {
+      throw new BrowserError(`页面不存在: ${pageId}`, 'PAGE_NOT_FOUND')
+    }
+    return meta
+  }
+
+  /**
+   * 获取所有页面ID
+   */
+  public getAllPageIds(): string[] {
+    return Array.from(this.pages.keys())
+  }
+
+  /**
+   * 关闭页面
+   */
+  public async closePage(pageId: string): Promise<void> {
+    const page = this.pages.get(pageId)
+    if (!page) {
+      logger.warn(`尝试关闭不存在的页面: ${pageId}`)
+      return
     }
 
-    const newPage = await this.context.newPage()
-    await this.setupPageOptimizations(newPage)
+    try {
+      await page.close()
+      logger.info(`页面已关闭: ${pageId}`)
+    } catch (error) {
+      logger.error(`关闭页面失败: ${pageId}`, error)
+    } finally {
+      this.pages.delete(pageId)
+      this.pageMeta.delete(pageId)
 
-    logger.info('额外页面已创建')
-    return newPage
+      // 如果关闭的是活动页面，清除活动页面
+      if (this.activePageId === pageId) {
+        this.activePageId = null
+      }
+    }
   }
 
   /**
@@ -304,16 +431,9 @@ export class BrowserService {
    */
   public async terminate(): Promise<void> {
     logger.info('正在关闭浏览器服务')
-
-    // 增加事件监听器清理
-    this.browser?.off('disconnected', this.handleBrowserDisconnect)
-    this.activePage?.off('crash', this.handlePageCrash)
-
     this.state = BrowserState.CLOSED
-    this.initPromise = null
-
+    this.stopHealthCheck()
     await this.cleanup()
-
     logger.info('浏览器服务已关闭')
   }
 
@@ -322,7 +442,7 @@ export class BrowserService {
    */
   public async reset(): Promise<void> {
     logger.info('重置浏览器会话')
-    this.initPromise = null
+    await this.cleanup()
     await this.initialize()
   }
 
@@ -337,9 +457,13 @@ export class BrowserService {
    * 更新配置
    */
   public updateConfig(newConfig: Partial<BrowserConfig>): void {
-    // 增加运行时生效逻辑
-    if (newConfig.viewport && this.activePage) {
-      this.activePage.setViewportSize(newConfig.viewport)
+    // 更新视口大小
+    if (newConfig.viewport) {
+      for (const page of this.pages.values()) {
+        if (!page.isClosed()) {
+          page.setViewportSize(newConfig.viewport)
+        }
+      }
     }
 
     this.config = { ...this.config, ...newConfig }
@@ -369,12 +493,8 @@ export class BrowserService {
       // 启动浏览器
       await this.launchBrowser()
 
-      // 创建上下文和页面
-      await this.createContext()
-      await this.createMainPage()
-
-      // 设置事件监听
-      this.setupEventListeners()
+      // 创建默认上下文
+      await this.createBrowserContext('default')
 
       // 启动健康检查
       this.startHealthCheck()
@@ -409,18 +529,19 @@ export class BrowserService {
     }
 
     this.browser = await chromium.launch(launchOptions)
+    this.browser.on('disconnected', () => this.handleBrowserDisconnect())
     logger.info('Chromium浏览器已启动')
   }
 
   /**
    * 创建浏览器上下文
    */
-  private async createContext(): Promise<void> {
+  private async createBrowserContext(contextId: string): Promise<BrowserContext> {
     if (!this.browser) {
       throw new BrowserError('浏览器未初始化', 'BROWSER_NOT_INITIALIZED')
     }
 
-    this.context = await this.browser.newContext({
+    const context = await this.browser.newContext({
       viewport: this.config.viewport,
       userAgent: this.config.userAgent,
       extraHTTPHeaders: {
@@ -437,26 +558,15 @@ export class BrowserService {
       permissions: ['geolocation', 'notifications']
     })
 
-    logger.info('浏览器上下文已创建')
-  }
-
-  /**
-   * 创建页面
-   */
-  private async createMainPage(): Promise<void> {
-    if (!this.context) {
-      throw new BrowserError('浏览器上下文未创建', 'CONTEXT_NOT_CREATED')
-    }
-
-    this.activePage = await this.context.newPage()
-    await this.setupPageOptimizations(this.activePage)
-    logger.info('新页面已创建')
+    this.contexts.set(contextId, context)
+    logger.info(`浏览器上下文已创建: ${contextId}`)
+    return context
   }
 
   /**
    * 设置页面优化
    */
-  private async setupPageOptimizations(page: Page): Promise<void> {
+  private async setupPageOptimizations(page: Page, contextId: string): Promise<void> {
     try {
       // 设置默认超时
       page.setDefaultTimeout(this.config.timeout)
@@ -493,7 +603,7 @@ export class BrowserService {
       // 设置请求拦截
       await page.route('**/*', (route) => {
         const url = route.request().url()
-        const resourceType = route.request().resourceType()
+        const resourceType = route.request().resourceType() as ResourceType
 
         // 阻止不必要的资源
         if (this.shouldBlockResource(url, resourceType)) {
@@ -503,7 +613,7 @@ export class BrowserService {
         return route.continue()
       })
 
-      logger.debug('页面优化设置完成')
+      logger.debug(`页面优化设置完成 [上下文: ${contextId}]`)
     } catch (error) {
       logger.warn('页面优化设置失败:', error)
     }
@@ -512,25 +622,79 @@ export class BrowserService {
   /**
    * 判断是否应该阻止资源
    */
-  private shouldBlockResource(url: string, resourceType: string): boolean {
-    const blockedTypes = ['image', 'font', 'media'] // 可配置
+  private shouldBlockResource(url: string, resourceType: ResourceType): boolean {
+    const { blockedDomains = [], blockedResourceTypes = [] } = this.config
     return (
-      BrowserService.BLOCKED_DOMAINS.some((d) => url.includes(d)) ||
-      blockedTypes.includes(resourceType)
+      blockedDomains.some((d) => url.includes(d)) || blockedResourceTypes.includes(resourceType)
     )
   }
 
   /**
-   * 设置事件监听器
+   * 设置页面事件监听
    */
-  private setupEventListeners(): void {
-    if (this.browser) {
-      this.browser.on('disconnected', this.handleBrowserDisconnect)
+  private setupPageEventListeners(pageId: string): void {
+    const page = this.getPage(pageId)
+
+    page.on('pageerror', (error) => {
+      logger.error(`页面错误 [${pageId}]:`, error)
+    })
+
+    page.on('crash', () => {
+      logger.error(`页面崩溃 [${pageId}]`)
+      this.restorePage(pageId).catch((error) => {
+        logger.error(`恢复崩溃页面失败 [${pageId}]:`, error)
+      })
+    })
+  }
+
+  /**
+   * 恢复页面
+   */
+  private async restorePage(pageId: string): Promise<void> {
+    const meta = this.pageMeta.get(pageId)
+    if (!meta) {
+      logger.warn(`尝试恢复不存在的页面: ${pageId}`)
+      return
     }
 
-    if (this.activePage) {
-      this.activePage.on('pageerror', this.handlePageError)
-      this.activePage.on('crash', this.handlePageCrash)
+    logger.info(`尝试恢复页面: ${pageId}`)
+
+    // 关闭当前页面
+    try {
+      const page = this.pages.get(pageId)
+      if (page && !page.isClosed()) {
+        await page.close()
+      }
+    } catch (error) {
+      logger.warn(`关闭崩溃页面失败: ${pageId}`, error)
+    }
+
+    // 从映射中移除
+    this.pages.delete(pageId)
+
+    // 创建新页面
+    try {
+      const context = this.contexts.get(meta.contextId)
+      if (!context) {
+        throw new BrowserError(`上下文不存在: ${meta.contextId}`, 'CONTEXT_NOT_FOUND')
+      }
+
+      const newPage = await context.newPage()
+      await this.setupPageOptimizations(newPage, meta.contextId)
+
+      this.pages.set(pageId, newPage)
+      this.pageMeta.set(pageId, {
+        ...meta,
+        lastUsed: new Date()
+      })
+
+      // 重新设置事件监听
+      this.setupPageEventListeners(pageId)
+
+      logger.info(`页面恢复成功: ${pageId}`)
+    } catch (error) {
+      logger.error(`页面恢复失败: ${pageId}`, error)
+      this.pageMeta.delete(pageId)
     }
   }
 
@@ -545,32 +709,9 @@ export class BrowserService {
     // 尝试重新连接
     try {
       await this.initialize()
+      logger.info('浏览器重连成功')
     } catch (error) {
       logger.error('浏览器重连失败:', error)
-    }
-  }
-
-  /**
-   * 处理页面错误
-   */
-  private handlePageError(error: Error): void {
-    logger.error('页面错误:', error)
-  }
-
-  /**
-   * 处理页面崩溃
-   */
-  private async handlePageCrash(): Promise<void> {
-    try {
-      // 增加页面恢复状态验证
-      if (this.activePage?.isClosed()) {
-        await this.createMainPage()
-        await this.activePage.goto('about:blank') // 重置页面状态
-      }
-    } catch (error) {
-      logger.error('页面崩溃恢复失败:', error)
-      // 增加级联恢复
-      await this.reset()
     }
   }
 
@@ -579,10 +720,14 @@ export class BrowserService {
    */
   private startHealthCheck(): void {
     this.healthCheckInterval = setInterval(async () => {
-      const isHealthy = await this.checkHealth()
-      if (!isHealthy && this.state === BrowserState.READY) {
-        logger.warn('健康检查失败，尝试重新初始化')
-        await this.initialize()
+      try {
+        const isHealthy = await this.checkHealth()
+        if (!isHealthy && this.state === BrowserState.READY) {
+          logger.warn('健康检查失败，尝试重新初始化')
+          await this.initialize()
+        }
+      } catch (error) {
+        logger.error('健康检查异常:', error)
       }
     }, 30000) // 每30秒检查一次
   }
@@ -650,46 +795,56 @@ export class BrowserService {
    */
   private async cleanup(): Promise<void> {
     logger.debug('开始清理浏览器资源')
-
     this.stopHealthCheck()
 
-    const cleanupTasks: Promise<void>[] = []
+    // 关闭所有页面
+    const closePageTasks = Array.from(this.pages.keys()).map((pageId) =>
+      this.closePage(pageId).catch((error) => logger.warn(`关闭页面失败: ${pageId}`, error))
+    )
+    await Promise.all(closePageTasks)
 
-    if (this.activePage) {
-      cleanupTasks.push(
-        this.activePage
-          .close()
-          .catch((error) => logger.warn('关闭页面失败:', error))
-          .then(() => {
-            this.activePage = null
-          })
-      )
-    }
+    // 关闭所有上下文
+    const closeContextTasks = Array.from(this.contexts.values()).map((context) =>
+      context.close().catch((error) => logger.warn('关闭上下文失败:', error))
+    )
+    await Promise.all(closeContextTasks)
+    this.contexts.clear()
 
-    if (this.context) {
-      cleanupTasks.push(
-        this.context
-          .close()
-          .catch((error) => logger.warn('关闭上下文失败:', error))
-          .then(() => {
-            this.context = null
-          })
-      )
-    }
-
+    // 关闭浏览器
     if (this.browser) {
-      cleanupTasks.push(
-        this.browser
-          .close()
-          .catch((error) => logger.warn('关闭浏览器失败:', error))
-          .then(() => {
-            this.browser = null
-          })
-      )
+      try {
+        await this.browser.close()
+      } catch (error) {
+        logger.warn('关闭浏览器失败:', error)
+      } finally {
+        this.browser = null
+      }
     }
 
-    await Promise.all(cleanupTasks)
+    // 重置状态
+    this.pages.clear()
+    this.pageMeta.clear()
+    this.activePageId = null
+
     logger.debug('浏览器资源清理完成')
+  }
+
+  /**
+   * 生成唯一页面ID
+   */
+  private generatePageId(): string {
+    return `page-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`
+  }
+
+  /**
+   * 更新页面最后使用时间
+   */
+  private updatePageLastUsed(pageId: string): void {
+    const meta = this.pageMeta.get(pageId)
+    if (meta) {
+      meta.lastUsed = new Date()
+      this.pageMeta.set(pageId, meta)
+    }
   }
 
   /**

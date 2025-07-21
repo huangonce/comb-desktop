@@ -32,7 +32,7 @@ const pagination = ref({
   sortBy: 'index',
   descending: false,
   page: 1,
-  rowsPerPage: 10
+  rowsPerPage: 20
 })
 const rowsPerPageOptions: Array<number> = [10, 20, 50, 100, 0]
 
