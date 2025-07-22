@@ -1,7 +1,7 @@
 import { Page } from 'playwright-core'
 import { BrowserService } from './browser.service'
 import { logger } from './logger.service'
-import { getErrorMessage } from './alibaba/utils'
+import { getErrorMessage } from './alibaba/alibaba.utils'
 
 /**
  * 天眼查登录信息
@@ -18,15 +18,52 @@ export interface TianyanchaLoginInfo {
 /**
  * 天眼查服务类
  * 负责管理天眼查登录状态和认证信息
+ * 内部管理独立的浏览器实例以实现登录信息共享
  */
 export class TianyanchaService {
   private browserService: BrowserService
   private loginInfo: TianyanchaLoginInfo | null = null
   private readonly TIANYANCHA_URL = 'https://www.tianyancha.com'
   private readonly LOGIN_CHECK_TIMEOUT = 30000 // 30秒超时
+  private persistentPageId: string | null = null // 持久化页面ID，用于保持登录状态
 
-  constructor(browserService: BrowserService) {
-    this.browserService = browserService
+  constructor() {
+    // 创建专用于天眼查的浏览器服务实例
+    this.browserService = new BrowserService({
+      headless: false, // 登录窗口需要用户交互
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1200, height: 800 },
+      timeout: 60000,
+      // 为天眼查优化的配置
+      blockedDomains: [], // 不阻止任何域名，确保登录功能正常
+      blockedResourceTypes: ['image', 'font'] // 只阻止图片和字体以提高性能
+    })
+  }
+
+  /**
+   * 获取或创建持久化页面
+   */
+  private async getPersistentPage(): Promise<{ page: Page; pageId: string }> {
+    // 如果已有持久化页面且仍然有效，直接返回
+    if (this.persistentPageId) {
+      try {
+        const page = this.browserService.getPage(this.persistentPageId)
+        if (page && !page.isClosed()) {
+          return { page, pageId: this.persistentPageId }
+        }
+      } catch {
+        logger.warn('持久化页面已失效，将创建新页面')
+        this.persistentPageId = null
+      }
+    }
+
+    // 创建新的持久化页面
+    const pageId = await this.browserService.createPage()
+    this.persistentPageId = pageId
+    const page = this.browserService.getPage(pageId)
+
+    return { page, pageId }
   }
 
   /**
@@ -40,31 +77,26 @@ export class TianyanchaService {
         return this.loginInfo.isLoggedIn
       }
 
-      // 创建新页面检查登录状态
-      const pageId = await this.browserService.createPage()
+      // 使用持久化页面检查登录状态
+      const { page } = await this.getPersistentPage()
 
-      try {
-        const page = this.browserService.getPage(pageId)
-        await page.goto(this.TIANYANCHA_URL, {
-          waitUntil: 'networkidle',
-          timeout: this.LOGIN_CHECK_TIMEOUT
-        })
+      await page.goto(this.TIANYANCHA_URL, {
+        waitUntil: 'networkidle',
+        timeout: this.LOGIN_CHECK_TIMEOUT
+      })
 
-        // 检查是否已登录
-        const isLoggedIn = await this.isUserLoggedIn(page)
+      // 检查是否已登录
+      const isLoggedIn = await this.isUserLoggedIn(page)
 
-        if (isLoggedIn) {
-          // 获取登录信息
-          await this.extractLoginInfo(page)
-          logger.info('天眼查已登录')
-        } else {
-          logger.info('天眼查未登录')
-        }
-
-        return isLoggedIn
-      } finally {
-        await this.browserService.closePage(pageId)
+      if (isLoggedIn) {
+        // 获取登录信息
+        await this.extractLoginInfo(page)
+        logger.info('天眼查已登录')
+      } else {
+        logger.info('天眼查未登录')
       }
+
+      return isLoggedIn
     } catch (error) {
       logger.error('检查天眼查登录状态失败:', getErrorMessage(error))
       return false
@@ -78,34 +110,26 @@ export class TianyanchaService {
     try {
       logger.info('弹出天眼查登录窗口')
 
-      // 创建新的浏览器页面用于登录
-      const pageId = await this.browserService.createPage()
+      // 使用持久化页面进行登录
+      const { page } = await this.getPersistentPage()
 
-      try {
-        const page = this.browserService.getPage(pageId)
+      // 导航到天眼查登录页
+      await page.goto(this.TIANYANCHA_URL, {
+        waitUntil: 'networkidle',
+        timeout: this.LOGIN_CHECK_TIMEOUT
+      })
 
-        // 导航到天眼查登录页
-        await page.goto(this.TIANYANCHA_URL, {
-          waitUntil: 'networkidle',
-          timeout: this.LOGIN_CHECK_TIMEOUT
-        })
+      // 等待用户登录完成
+      const loginSuccess = await this.waitForUserLogin(page)
 
-        // 等待用户登录完成
-        const loginSuccess = await this.waitForUserLogin(page)
-
-        if (loginSuccess) {
-          // 提取登录信息
-          await this.extractLoginInfo(page)
-          logger.info('天眼查登录成功')
-          return true
-        } else {
-          logger.warn('天眼查登录失败或用户取消')
-          return false
-        }
-      } finally {
-        // 等待一段时间让用户看到结果，然后关闭窗口
-        await new Promise((resolve) => setTimeout(resolve, 2000))
-        await this.browserService.closePage(pageId)
+      if (loginSuccess) {
+        // 提取登录信息
+        await this.extractLoginInfo(page)
+        logger.info('天眼查登录成功')
+        return true
+      } else {
+        logger.warn('天眼查登录失败或用户取消')
+        return false
       }
     } catch (error) {
       logger.error('天眼查登录窗口操作失败:', getErrorMessage(error))
@@ -341,5 +365,29 @@ export class TianyanchaService {
     } catch (error) {
       logger.error('添加认证信息失败:', getErrorMessage(error))
     }
+  }
+
+  /**
+   * 清理资源和关闭浏览器服务
+   */
+  async cleanup(): Promise<void> {
+    try {
+      if (this.persistentPageId) {
+        await this.browserService.closePage(this.persistentPageId)
+        this.persistentPageId = null
+      }
+      await this.browserService.destroy()
+      logger.info('天眼查服务资源清理完成')
+    } catch (error) {
+      logger.error('清理天眼查服务资源失败:', getErrorMessage(error))
+    }
+  }
+
+  /**
+   * 清除登录信息缓存
+   */
+  clearLoginCache(): void {
+    this.loginInfo = null
+    logger.info('已清除天眼查登录信息缓存')
   }
 }

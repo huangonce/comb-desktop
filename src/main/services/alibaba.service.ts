@@ -4,13 +4,13 @@ import { logger } from './logger.service'
 import { SupplierInfo } from '../../shared/SupplierInfo'
 import { TianyanchaService } from './tianyancha.service'
 import {
-  buildSearchUrl,
   getErrorMessage,
   hasNoMoreResults,
   isCaptchaPage,
   isSupplierSearchPage,
-  normalizeUrl
-} from './alibaba/utils'
+  normalizeUrl,
+  buildSearchUrl
+} from './alibaba/alibaba.utils'
 
 // 第三方服务接口
 interface OcrService {
@@ -42,7 +42,7 @@ export class AlibabaService {
 
   constructor(ocrService?: OcrService) {
     this.browserService = new BrowserService()
-    this.tianyanchaService = new TianyanchaService(this.browserService)
+    this.tianyanchaService = new TianyanchaService()
     this.ocrService = ocrService || null
   }
 
@@ -114,6 +114,13 @@ export class AlibabaService {
     await Promise.allSettled(closePromises)
     this.activePageIds.clear()
     this.pageIdToPageMap.clear()
+
+    // 清理天眼查服务
+    try {
+      await this.tianyanchaService.cleanup()
+    } catch (error) {
+      logger.warn('清理天眼查服务失败:', getErrorMessage(error))
+    }
   }
 
   /**
@@ -284,6 +291,10 @@ export class AlibabaService {
 
       if (!loginSuccess) {
         logger.error('天眼查登录失败，无法继续搜索')
+
+        if (onError) {
+          onError(new Error('天眼查登录失败，无法继续搜索'), 0)
+        }
         throw new Error('天眼查登录失败，无法继续搜索')
       }
 

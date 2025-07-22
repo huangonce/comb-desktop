@@ -1,5 +1,5 @@
 import { Page } from 'playwright-core'
-import { logger } from '../../services/logger.service'
+import { logger } from '../logger.service'
 
 const TIMEOUT = 5_000
 const CAPTCHA_SELECTORS = [
