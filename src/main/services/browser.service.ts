@@ -87,10 +87,15 @@ export class BrowserService {
   private state: BrowserState = BrowserState.UNINITIALIZED // 浏览器状态
   private initPromise: Promise<void> | null = null // 初始化Promise
   private healthCheckInterval: NodeJS.Timeout | null = null // 健康检查定时器
+  private idleCleanupTimeout: NodeJS.Timeout | null = null // 空闲清理定时器
+  // private lastActivity: number = Date.now() // 最后活动时间（暂未使用）
 
   // 常量定义
   private static readonly DEFAULT_USER_AGENT =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+  private static readonly IDLE_CLEANUP_DELAY = 5 * 60 * 1000 // 5分钟空闲后清理
+  private static readonly HEALTH_CHECK_INTERVAL = 30 * 1000 // 30秒健康检查间隔
 
   private static readonly LAUNCH_ARGS = [
     '--no-sandbox',
@@ -214,6 +219,7 @@ export class BrowserService {
    */
   public async createPage(options: PageOptions = {}): Promise<string> {
     await this.ensureReady()
+    this.updateActivity()
 
     const contextId = options.contextId || 'default'
     let context = this.contexts.get(contextId)
@@ -246,6 +252,11 @@ export class BrowserService {
       this.setActivePage(pageId)
     }
 
+    // 启动健康检查（如果还没有启动）
+    this.ensureHealthCheck()
+    // 取消空闲清理
+    this.cancelIdleCleanup()
+
     return pageId
   }
 
@@ -263,6 +274,7 @@ export class BrowserService {
       retries = this.config.maxRetries || 3
     } = options
 
+    this.updateActivity()
     const page = this.getPage(pageId)
     let lastError: Error | null = null
 
@@ -422,6 +434,11 @@ export class BrowserService {
       // 如果关闭的是活动页面，清除活动页面
       if (this.activePageId === pageId) {
         this.activePageId = null
+      }
+
+      // 检查是否所有页面都已关闭，如果是则开始空闲清理计时
+      if (this.pages.size === 0) {
+        this.scheduleIdleCleanup()
       }
     }
   }
@@ -719,8 +736,18 @@ export class BrowserService {
    * 启动健康检查
    */
   private startHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      return // 已经启动了
+    }
+
     this.healthCheckInterval = setInterval(async () => {
       try {
+        // 如果没有活动页面，跳过健康检查
+        if (this.pages.size === 0) {
+          logger.debug('无活动页面，跳过健康检查')
+          return
+        }
+
         const isHealthy = await this.checkHealth()
         if (!isHealthy && this.state === BrowserState.READY) {
           logger.warn('健康检查失败，尝试重新初始化')
@@ -729,7 +756,9 @@ export class BrowserService {
       } catch (error) {
         logger.error('健康检查异常:', error)
       }
-    }, 30000) // 每30秒检查一次
+    }, BrowserService.HEALTH_CHECK_INTERVAL)
+
+    logger.debug('健康检查已启动')
   }
 
   /**
@@ -739,6 +768,7 @@ export class BrowserService {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval)
       this.healthCheckInterval = null
+      logger.debug('健康检查已停止')
     }
   }
 
@@ -796,6 +826,7 @@ export class BrowserService {
   private async cleanup(): Promise<void> {
     logger.debug('开始清理浏览器资源')
     this.stopHealthCheck()
+    this.cancelIdleCleanup()
 
     // 关闭所有页面
     const closePageTasks = Array.from(this.pages.keys()).map((pageId) =>
@@ -844,6 +875,55 @@ export class BrowserService {
     if (meta) {
       meta.lastUsed = new Date()
       this.pageMeta.set(pageId, meta)
+    }
+  }
+
+  /**
+   * 更新活动时间
+   */
+  private updateActivity(): void {
+    // this.lastActivity = Date.now() // 暂时不使用时间戳，而是基于页面数量来判断空闲状态
+    logger.debug('浏览器活动更新')
+  }
+
+  /**
+   * 确保健康检查启动
+   */
+  private ensureHealthCheck(): void {
+    if (!this.healthCheckInterval && this.state === BrowserState.READY) {
+      this.startHealthCheck()
+    }
+  }
+
+  /**
+   * 安排空闲清理
+   */
+  private scheduleIdleCleanup(): void {
+    this.cancelIdleCleanup()
+
+    logger.debug(`安排空闲清理，${BrowserService.IDLE_CLEANUP_DELAY / 1000}秒后执行`)
+    this.idleCleanupTimeout = setTimeout(async () => {
+      try {
+        // 再次检查是否真的没有页面
+        if (this.pages.size === 0 && this.state === BrowserState.READY) {
+          logger.info('执行空闲清理，关闭浏览器')
+          await this.cleanup()
+          this.state = BrowserState.UNINITIALIZED
+        }
+      } catch (error) {
+        logger.error('空闲清理失败:', error)
+      }
+    }, BrowserService.IDLE_CLEANUP_DELAY)
+  }
+
+  /**
+   * 取消空闲清理
+   */
+  private cancelIdleCleanup(): void {
+    if (this.idleCleanupTimeout) {
+      clearTimeout(this.idleCleanupTimeout)
+      this.idleCleanupTimeout = null
+      logger.debug('空闲清理已取消')
     }
   }
 

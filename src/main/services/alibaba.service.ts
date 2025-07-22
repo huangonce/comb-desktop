@@ -17,41 +17,6 @@ interface OcrService {
   recognize(imageBuffer: Buffer): Promise<string>
 }
 
-/**
- * 使用示例：
- *
- * // 1. 基础流式搜索
- * const alibabaService = new AlibabaService()
- *
- * for await (const pageSuppliers of alibabaService.searchSuppliersStream('laptop', undefined, 10)) {
- *   console.log(`获得一页供应商数据: ${pageSuppliers.length} 个`)
- *   // 可以立即处理这批数据，无需等待全部完成
- *   await processSuppliersData(pageSuppliers)
- * }
- *
- * // 2. 带进度回调的流式搜索
- * for await (const result of alibabaService.searchSuppliersWithProgress('laptop', {
- *   onPageStart: (pageNumber) => {
- *     console.log(`开始采集第 ${pageNumber} 页`)
- *   },
- *   onPageComplete: (suppliers, pageNumber, totalFound) => {
- *     console.log(`第 ${pageNumber} 页完成，找到 ${suppliers.length} 个供应商，累计 ${totalFound} 个`)
- *   },
- *   onError: (error, pageNumber) => {
- *     console.error(`第 ${pageNumber} 页采集失败: ${error.message}`)
- *   },
- *   maxPages: 10 // 限制最大页数，如果为 0 或不设置则不限制
- * })) {
- *   const { suppliers, pageNumber, totalFound } = result
- *   console.log(`处理第 ${pageNumber} 页的 ${suppliers.length} 个供应商`)
- *   // 实时处理数据
- * }
- *
- * // 3. 兼容性使用（仍然支持原有的批量模式）
- * const allSuppliers = await alibabaService.searchSuppliers('laptop', 5) // 限制最大5页
- * console.log(`获得全部供应商: ${allSuppliers.length} 个`)
- */
-
 export class AlibabaService {
   private browserService: BrowserService
   private tianyanchaService: TianyanchaService
